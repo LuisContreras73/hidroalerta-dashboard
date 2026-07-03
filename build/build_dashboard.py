@@ -1075,7 +1075,7 @@ def bloque_embeddings(cfg_json: str) -> str:
     """Carrusel COVERFLOW 3D de los 8 métodos + conmutador de 3 coloraciones.
 
     Una fila de tarjetas (una por método) con perspectiva 3D: la tarjeta CENTRAL
-    está al frente, plana y grande (scatter Plotly interactivo, sin transform
+    está al frente, plana y grande (scattergl WebGL interactivo, sin transform
     para que el hover funcione); las laterales aparecen rotadas en Y (rotateY),
     reducidas y atenuadas, dando profundidad. Navegación: flechas prev/next +
     puntos + teclado (←/→); transición 3D ~450ms. Un único conmutador (3 botones
@@ -1509,10 +1509,12 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         for tid, lab in tabs)
 
     # Integrantes: presentación que "vende" en dos bloques por tarjeta —
-    #   1) fila superior: FOTO cuadrada 116px (izquierda) + identidad
-    #      (nombre serif + rol + bio con gancho) al costado;
-    #   2) banda inferior full-width (ocupa también bajo la foto): chips de
-    #      habilidades + íconos de contacto.
+    #   1) fila superior: FOTO cuadrada 116px (izquierda) + identidad al costado,
+    #      que contiene SOLO nombre (serif) + rol + íconos de contacto;
+    #   2) banda inferior full-width (ocupa también bajo la foto): la BIO
+    #      (descripción con gancho).
+    # Los chips de habilidades se ELIMINARON (redundantes con la sección
+    # "Herramientas"); ya no viven en la tarjeta.
     # La foto (foto_N por orden) es cuadrada, object-fit:cover, sin distorsión.
     # Los correos se abren con mailto; LinkedIn y GitHub como enlaces externos
     # (target=_blank rel=noopener). Solo SVG inline (nada de imágenes externas).
@@ -1524,8 +1526,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             "bio": ("Diseñó la arquitectura propia RA-TFT (transformer de "
                     "pronóstico multi-horizonte) y el sistema de alerta; "
                     "construyó el dashboard interactivo."),
-            "chips": ["PyTorch", "Transformers", "Series temporales",
-                      "Optuna", "Plotly"],
             "correos": ["luis.contreras@utec.edu.pe",
                         "luis.alonzo.contreras.perez@gmail.com"],
             "linkedin": "https://www.linkedin.com/in/luis-alonzo-contreras-perez",
@@ -1537,7 +1537,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             "bio": ("Desarrollo del dashboard interactivo, análisis "
                     "exploratorio y visualización de los resultados "
                     "hidroclimáticos."),
-            "chips": ["Python", "EDA", "Folium", "Pandas", "Earth Engine"],
             "correos": ["diego.mijahuanca@utec.edu.pe"],
             "linkedin": ("https://www.linkedin.com/in/"
                          "diego-alonso-javier-mijahuanca-quispe-5546882aa"),
@@ -1616,13 +1615,12 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         else:
             avatar = (f"<span class='eq-foto eq-foto-txt' aria-hidden='true'>"
                       f"{_iniciales(n)}</span>")
-        # Chips de habilidades (pills sobrias, en fila que envuelve).
-        chips_html = "".join(
-            f"<span class='eq-chip'>{c}</span>" for c in p["chips"])
         # Estructura en dos bloques:
-        #   · Fila superior (.eq-top): foto + identidad (nombre/rol/bio).
-        #   · Banda inferior (.eq-band, full-width): chips + contactos.
+        #   · Fila superior (.eq-top): foto + identidad al costado, que contiene
+        #     SOLO nombre (serif) + rol + íconos de contacto.
+        #   · Banda inferior (.eq-band, full-width): la BIO (gancho).
         # La banda ocupa también bajo la foto → tarjeta equilibrada y aireada.
+        # Sin chips de habilidades (viven ahora solo en "Herramientas").
         filas_eq.append(
             f"<li class='eq-card'>"
             f"<div class='eq-top'>"
@@ -1630,12 +1628,11 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             f"<div class='eq-ident'>"
             f"<span class='eq-nombre'>{n}</span>"
             f"<span class='eq-rol'>{p['rol']}</span>"
-            f"<p class='eq-bio'>{p['bio']}</p>"
+            f"{_contactos(p)}"
             f"</div>"
             f"</div>"
             f"<div class='eq-band'>"
-            f"<span class='eq-chips'>{chips_html}</span>"
-            f"{_contactos(p)}"
+            f"<p class='eq-bio'>{p['bio']}</p>"
             f"</div>"
             f"</li>")
     equipo_html = "".join(filas_eq)
@@ -2304,11 +2301,10 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   background:linear-gradient(90deg,var(--cyan),var(--accent)); }}
 /* Equipo: tarjetas en DOS bloques para que respiren —
    · Fila superior (.eq-top): foto CUADRADA fija (flex:0 0 auto) + identidad
-     (nombre serif + rol + bio con gancho). Solo estos dos bloques van al lado
-     de la foto.
-   · Banda inferior (.eq-band): full-width (ocupa también bajo la foto) con los
-     chips de habilidades a la izquierda y los íconos de contacto a la derecha,
-     separada por un hairline tenue.
+     al costado, que contiene SOLO nombre (serif) + rol + íconos de contacto.
+   · Banda inferior (.eq-band): full-width (ocupa también bajo la foto) con la
+     BIO (descripción con gancho), separada por un hairline tenue.
+   Sin chips de habilidades (redundantes con la sección "Herramientas").
    Micro-interacción de elevación al hover (respeta prefers-reduced-motion). */
 .equipo {{ list-style:none; padding:0; margin:0; display:flex;
   flex-direction:column; gap:16px; }}
@@ -2336,31 +2332,24 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   object-position:center; display:block; }}
 .eq-foto-txt {{ font-family:var(--mono); font-weight:600;
   font-size:clamp(28px,3vw,36px); color:var(--cyan); letter-spacing:.02em; }}
-/* Identidad (nombre/rol/bio): flex:1 + min-width:0 para que respire. */
+/* Identidad (nombre/rol/contactos): flex:1 + min-width:0 para que respire.
+   Solo estos tres elementos van al lado de la foto (la bio va en la banda). */
 .eq-ident {{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0;
   gap:5px; }}
 .eq-nombre {{ font-family:var(--serif); color:#fff; font-weight:600;
   font-size:16.5px; line-height:1.28; letter-spacing:-.005em; }}
 .eq-rol {{ color:var(--cyan); font-size:11.5px; font-weight:600;
   text-transform:uppercase; letter-spacing:.06em; line-height:1.4; }}
-/* Bio con gancho: presentación breve que "vende". */
-.eq-bio {{ color:#B4C6D0; font-size:13px; line-height:1.55; margin:7px 0 0;
-  max-width:52ch; }}
-/* Banda inferior full-width: chips (izquierda) + contactos (derecha),
-   separada del bloque superior por un hairline tenue. */
-.eq-band {{ display:flex; flex-wrap:wrap; align-items:center;
-  justify-content:space-between; gap:12px 16px;
-  padding-top:15px; border-top:1px solid rgba(255,255,255,.09); }}
-/* Chips de habilidades: pills sobrias (borde/relleno tenue, acento agua) en
-   fila que envuelve. */
-.eq-chips {{ display:flex; flex-wrap:wrap; gap:6px; min-width:0; }}
-.eq-chip {{ font-family:var(--sans); font-size:11px; font-weight:500;
-  color:#CBE4EC; background:rgba(27,168,196,.1);
-  border:1px solid rgba(27,168,196,.28); border-radius:999px;
-  padding:3px 10px; line-height:1.4; white-space:nowrap; }}
-/* Íconos de contacto: botones circulares sobrios con acento agua al hover. */
+/* Bio con gancho: presentación breve que "vende". Vive en la banda inferior. */
+.eq-bio {{ color:#B4C6D0; font-size:13px; line-height:1.55; margin:0;
+  max-width:64ch; }}
+/* Banda inferior full-width: la bio, separada del bloque superior por un
+   hairline tenue (ocupa también bajo la foto). */
+.eq-band {{ padding-top:15px; border-top:1px solid rgba(255,255,255,.09); }}
+/* Íconos de contacto: botones circulares sobrios con acento agua al hover.
+   Al lado de la foto, bajo el rol (pequeño respiro superior). */
 .eq-contact {{ display:flex; flex-wrap:wrap; align-items:center; gap:9px;
-  flex:none; }}
+  margin-top:6px; }}
 .eq-ico {{ display:inline-flex; align-items:center; justify-content:center;
   width:34px; height:34px; border-radius:50%; color:#9DB3BF;
   background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12);
@@ -2676,17 +2665,15 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   .emb-card {{ width:min(440px, 90%); padding:12px 12px 10px; }}
   .emb-nav {{ width:38px; height:38px; }}
 }}
-/* Tarjeta de equipo en móvil: apila (foto centrada arriba, luego nombre/rol/bio,
-   y finalmente chips + contactos centrados). En ningún ancho el texto se monta
-   sobre la foto ni se corta. */
+/* Tarjeta de equipo en móvil: apila (foto centrada arriba, luego nombre/rol/
+   contactos centrados y, finalmente, la bio en la banda). En ningún ancho el
+   texto se monta sobre la foto ni se corta. */
 @media (max-width:560px) {{
   .eq-card {{ gap:14px; padding:20px 18px; }}
   .eq-top {{ flex-direction:column; align-items:center; text-align:center;
     gap:14px; }}
   .eq-ident {{ align-items:center; width:100%; }}
-  .eq-band {{ flex-direction:column; align-items:center; text-align:center;
-    gap:14px; }}
-  .eq-chips {{ justify-content:center; }}
+  .eq-band {{ text-align:center; }}
   .eq-contact {{ justify-content:center; }}
 }}
 """
@@ -3021,8 +3008,9 @@ JS_FORECAST = """
 # ── Script de los embeddings: CARRUSEL coverflow 3D + 3 coloraciones ───────────
 # Análisis no supervisado (model-agnóstico). Los OCHO métodos viven en una fila
 # de tarjetas con perspectiva 3D (coverflow). La tarjeta CENTRAL está al frente,
-# plana (SIN transform) y grande → su scatter Plotly es interactivo y el hover
-# funciona; las laterales se posicionan por JS con translateX + rotateY + escala
+# plana (SIN transform) y grande → su scattergl (WebGL) es interactivo y el
+# hover funciona con ~4018 puntos; las laterales se posicionan por JS con
+# translateX + rotateY + escala
 # + opacidad (profundidad). Navegación: flechas prev/next, puntos y teclado
 # (←/→). Por rendimiento solo se DIBUJA el Plotly de la tarjeta central y sus
 # vecinas inmediatas (las demás son placeholders hasta acercarse). Al centrar
@@ -3083,13 +3071,14 @@ JS_EMBED = """
     // Trazas para el método `d` según la coloración activa.
     function tracesFor(d){
       if (colorMode === 'q'){
-        // (a) Magnitud del caudal: un scatter con color continuo + colorbar.
+        // (a) Magnitud del caudal: un scattergl (WebGL) con color continuo +
+        // colorbar. WebGL rinde con fluidez los ~4018 puntos por tarjeta.
         var tx = [];
         for (var i=0;i<d.x.length;i++){ tx.push(hoverText(d,i)); }
-        return [{ x:d.x, y:d.y, mode:'markers', type:'scatter',
+        return [{ x:d.x, y:d.y, mode:'markers', type:'scattergl',
           name:'Caudal', text:tx, hoverinfo:'text', showlegend:false,
           marker:{ color:d.q, colorscale:SCALE_Q, cmin:CFG.q_min, cmax:CFG.q_max,
-            size:6, opacity:0.82, line:{width:0},
+            size:5, opacity:0.7, line:{width:0},
             colorbar:{ title:{text:'m³/s', side:'right',
                 font:{family:FS, size:10, color:CFG.col_muted}},
               thickness:10, len:0.82, x:1.02, xpad:2,
@@ -3097,27 +3086,28 @@ JS_EMBED = """
               outlinewidth:0 } } }];
       }
       if (colorMode === 'reg'){
-        // (b) Crecida vs base (Q90): base azul (debajo), crecida rojo (encima).
+        // (b) Crecida vs base (Q90): base azul pequeño y tenue (debajo),
+        // crecida roja más marcada (encima). scattergl para densidad fluida.
         var b = split(d,'regimen','base'), c = split(d,'regimen','crecida');
         return [
-          { x:b.x, y:b.y, mode:'markers', type:'scatter', name:'Base',
+          { x:b.x, y:b.y, mode:'markers', type:'scattergl', name:'Base',
             text:b.text, hoverinfo:'text',
-            marker:{ color:toRGBA(CFG.col_base,0.45), size:5.5, line:{width:0} } },
-          { x:c.x, y:c.y, mode:'markers', type:'scatter', name:'Crecida',
+            marker:{ color:toRGBA(CFG.col_base,0.38), size:4.5, line:{width:0} } },
+          { x:c.x, y:c.y, mode:'markers', type:'scattergl', name:'Crecida',
             text:c.text, hoverinfo:'text',
-            marker:{ color:toRGBA(CFG.col_crecida,0.85), size:7.5,
-              line:{width:0.5, color:'#fff'} } }
+            marker:{ color:toRGBA(CFG.col_crecida,0.9), size:7,
+              line:{width:0} } }
         ];
       }
-      // (c) Temporada: húmeda vs seca (dos colores).
+      // (c) Temporada: húmeda vs seca (dos colores). scattergl (WebGL).
       var h = split(d,'temporada','humeda'), s = split(d,'temporada','seca');
       return [
-        { x:s.x, y:s.y, mode:'markers', type:'scatter', name:'Seca',
+        { x:s.x, y:s.y, mode:'markers', type:'scattergl', name:'Seca',
           text:s.text, hoverinfo:'text',
-          marker:{ color:toRGBA(CFG.col_seca,0.65), size:5.5, line:{width:0} } },
-        { x:h.x, y:h.y, mode:'markers', type:'scatter', name:'Húmeda',
+          marker:{ color:toRGBA(CFG.col_seca,0.6), size:5, line:{width:0} } },
+        { x:h.x, y:h.y, mode:'markers', type:'scattergl', name:'Húmeda',
           text:h.text, hoverinfo:'text',
-          marker:{ color:toRGBA(CFG.col_humeda,0.65), size:5.5, line:{width:0} } }
+          marker:{ color:toRGBA(CFG.col_humeda,0.6), size:5, line:{width:0} } }
       ];
     }
 
