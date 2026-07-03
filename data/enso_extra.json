@@ -1,0 +1,9 @@
+{
+  "r_indices": 0.625,
+  "r2_indices": 0.39,
+  "parcial_oni_dado_costero": -0.283,
+  "parcial_costero_dado_oni": 0.273,
+  "simple_oni": -0.144,
+  "simple_costero": 0.121,
+  "nota": "Signo opuesto -> supresion mutua; la correlacion parcial duplica la senal de cada indice. Validacion 2023: costero +2.11 (Fuerte ICEN) mientras ONI +0.16 (neutro)."
+}

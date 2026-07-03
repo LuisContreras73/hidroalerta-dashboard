@@ -1,0 +1,7 @@
+nombre,codigo,lat,lon,tipo,desc
+Santo Domingo,47E214D2,-11.3701,-77.0282,aforo,Estación de aforo automática (outlet de la cuenca)
+Santo Domingo,PHISIS0137,-11.3836,-77.0503,aforo,Estación de aforo (sensor complementario)
+Puente Callantama,47E22148,-11.2989,-76.8518,aforo,Estación de aforo (cuenca media)
+Vichaycocha,47E257D8,-11.1392,-76.6246,aforo,Estación de aforo (cabecera alta)
+Santa Cruz,155202,-11.2,-76.6333,meteorologica,Estación meteorológica SENAMHI
+Pirca,155214,-11.2333,-76.65,meteorologica,Estación meteorológica SENAMHI
