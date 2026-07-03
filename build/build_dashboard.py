@@ -133,8 +133,12 @@ def cargar():
     enso_extra = json.loads((DATA / "enso_extra.json").read_text(encoding="utf-8"))
     emb_coords = pd.read_csv(DATA / "embeddings_coords.csv", parse_dates=["fecha"])
     emb_sil = json.loads((DATA / "embeddings_sil.json").read_text(encoding="utf-8"))
+    # Metadatos de la climatología mensual (para la capa animada del recorrido):
+    # bounds de la cuenca, meses, y por variable {vmin,vmax,unidad,cmap,label}.
+    clima_meta = json.loads(
+        (DATA / "clima_meta.json").read_text(encoding="utf-8"))
     return (serie, metr, meta, subs, lim, fcast, mens, enso, acf, ccf,
-            estaciones, enso_abl, enso_extra, emb_coords, emb_sil)
+            estaciones, enso_abl, enso_extra, emb_coords, emb_sil, clima_meta)
 
 
 # ── Recursos gráficos (imágenes) → data URI, con degradación tipográfica ──────
@@ -1466,7 +1470,7 @@ def franja_herramientas(imgs: dict) -> str:
 # ══ STORYMAP «Recorrido» (scrollytelling) ═════════════════════════════════════
 # Nueva pestaña: narrativa de SEGURIDAD HÍDRICA de la cuenca Chancay–Huaral.
 # El texto avanza (columna narrativa de "pasos") mientras un panel PEGAJOSO
-# (sticky) cambia de visual por capítulo (globo 3D → mapa Leaflet → GIF → Plotly).
+# (sticky) cambia de visual por capítulo (globo 3D → mapa Leaflet → clima → Plotly).
 # Un IntersectionObserver detecta el paso activo y reconfigura el sticky (JS_STORY).
 #
 # Datos servidos al JS (sin rutas privadas): límite de cuenca y subcuencas
@@ -1489,12 +1493,58 @@ def _elev_color(e: float) -> str:
     return COL_DEEP
 
 
-def storymap_datos(meta, subs, lim, estaciones) -> str:
+# Rampas de color (stops HEX de 0→1) equivalentes a las colormaps de
+# matplotlib con que se renderizaron los frames climáticos: YlGnBu para la
+# precipitación y RdYlBu_r para la temperatura. Se usan para construir el
+# gradiente CSS de la leyenda/colorbar (sin necesidad de la imagen del colorbar)
+# y se pasan tal cual al JS. Muestreadas de matplotlib (9 stops uniformes).
+CMAP_STOPS = {
+    "YlGnBu": ["#FFFFD9", "#EDF8B1", "#C6E9B4", "#7ECDBB", "#40B5C4",
+               "#1D90C0", "#225DA8", "#243392", "#081D58"],
+    "RdYlBu_r": ["#313695", "#5183BB", "#90C3DD", "#D4EDF4", "#FFFEBE",
+                 "#FED283", "#F88C51", "#DD3D2D", "#A50026"],
+}
+
+
+def clima_capa_payload(clima_meta: dict) -> dict:
+    """Prepara el sub-payload de la capa climática animada del recorrido.
+
+    A partir de data/clima_meta.json arma, por variable (precip/temp), la lista
+    ordenada de frames (rutas relativas a docs/media/clima/*.png), los stops de
+    color de su colormap (para el gradiente CSS de la leyenda) y los metadatos de
+    escala (vmin/vmax/unidad/label). Los bounds de la cuenca y los nombres de mes
+    son comunes. Las 24 imágenes se referencian de forma relativa (como los GIF
+    antiguos) y el JS las precarga."""
+    meses = clima_meta.get("meses", [])
+    n = len(meses) or 12
+    variables = {}
+    for var in ("precip", "temp"):
+        info = clima_meta.get(var, {})
+        cmap = info.get("cmap", "YlGnBu")
+        frames = [f"media/clima/{var}_{i:02d}.png" for i in range(1, n + 1)]
+        variables[var] = {
+            "frames": frames,
+            "vmin": info.get("vmin"),
+            "vmax": info.get("vmax"),
+            "unidad": info.get("unidad", ""),
+            "label": info.get("label", ""),
+            "cmap": cmap,
+            "stops": CMAP_STOPS.get(cmap, CMAP_STOPS["YlGnBu"]),
+        }
+    return {
+        "bounds": clima_meta.get("bounds"),
+        "meses": meses,
+        "variables": variables,
+    }
+
+
+def storymap_datos(meta, subs, lim, estaciones, clima_meta) -> str:
     """Empaqueta a JSON todo lo que el mapa Leaflet del recorrido necesita.
 
     Incluye: GeoJSON del límite y de las subcuencas (con color por elevación ya
-    resuelto en las propiedades), lista de estaciones (aforo/meteo con color), y
-    los parámetros de cámara por capítulo (centro, zoom, capa a resaltar)."""
+    resuelto en las propiedades), lista de estaciones (aforo/meteo con color),
+    los parámetros de cámara por capítulo (centro, zoom, capa a resaltar) y la
+    capa climática animada (frames mensuales de precip/temp + colorbar)."""
     # Subcuencas: se reexpone el GeoJSON tal cual + color/etiqueta por feature.
     feats = []
     for f in subs["features"]:
@@ -1535,6 +1585,8 @@ def storymap_datos(meta, subs, lim, estaciones) -> str:
         "umbral": UMBRAL_Q90,
         "area_km2": meta["cuenca_area_km2"],
         "n_sub": meta["n_subcuencas"],
+        # Capa climática animada (frames mensuales + colorbar) para el cap. 04.
+        "clima": clima_capa_payload(clima_meta),
         # Colores del proyecto para el JS (marcadores, resaltados).
         "col_accent": COL_ACCENT, "col_deep": COL_DEEP, "col_cyan": COL_CYAN,
         "col_crit": COL_CRIT, "col_warn": COL_WARN, "col_ink": COL_INK,
@@ -1625,8 +1677,8 @@ def construir_leaderboard_recorrido(metr: pd.DataFrame) -> str:
 # Capítulos del recorrido. Cada uno: (id, eyebrow, título, párrafos[], escena).
 # La "escena" indica al JS qué visual sticky mostrar y cómo configurarlo.
 #   globo            — Cap. 1: globo 3D girando hacia Perú → cuenca.
-#   mapa:<vista>     — Leaflet: 'cuenca' | 'outlet' | 'estaciones'.
-#   gif              — Cap. 4: los dos GIF de climatología.
+#   mapa:<vista>     — Leaflet: 'cuenca' | 'outlet' | 'clima' | 'estaciones'.
+#   mapa:clima       — Cap. 4: capa climática animada (imageOverlay) sobre el mapa.
 #   evento           — Cap. 6: hidrograma feb-2024.
 #   leaderboard      — Cap. 7: NSE vs horizonte.
 #   cierre           — Cap. 8: mapa general + mensaje de cierre (reusa Leaflet).
@@ -1677,7 +1729,7 @@ def _story_capitulos(meta) -> list:
                  "observada— hablamos de una crecida potencialmente peligrosa. "
                  "Detectarla con antelación es el corazón del sistema.",
              ]),
-        dict(id="clima", escena="gif", num="04",
+        dict(id="clima", escena="mapa:clima", num="04",
              eyebrow="El clima que la alimenta",
              titulo="Un ciclo estacional que marca la disponibilidad de agua",
              parrafos=[
@@ -1685,11 +1737,13 @@ def _story_capitulos(meta) -> list:
                  "húmeda (diciembre–abril)</b> concentra la lluvia sobre la "
                  "cabecera andina y llena el cauce; el resto del año, la cuenca se "
                  "seca y el caudal cae.",
-                 "Estas animaciones muestran la <b>climatología mensual</b> de "
-                 "precipitación y temperatura con sus isolíneas: dónde y cuándo "
-                 "llueve, y cómo cambia la temperatura a lo largo del año. Ese "
-                 "patrón estacional es la base para anticipar tanto las crecidas "
-                 "como los periodos de escasez.",
+                 "Recorra los <b>doce meses</b> sobre el mapa: la capa muestra la "
+                 "<b>climatología mensual</b> de precipitación y temperatura, "
+                 "ceñida a la cuenca. Cambie entre una y otra variable, y pulse "
+                 "reproducir para ver el año completo. Ese patrón estacional es la "
+                 "base de la <b>seguridad hídrica</b>: define cuándo hay recarga y "
+                 "disponibilidad y cuándo llega el estiaje, y anticipa tanto las "
+                 "crecidas como los periodos de escasez.",
              ]),
         dict(id="estaciones", escena="mapa:estaciones", num="05",
              eyebrow="Las estaciones y los datos",
@@ -1751,10 +1805,12 @@ def bloque_recorrido(meta, cfg_json: str, evento_div: str,
                      leaderboard_div: str) -> str:
     """Arma la pestaña «Recorrido»: columna narrativa de pasos + panel sticky.
 
-    El panel sticky contiene TODAS las capas de visual (globo, mapa, GIFs, dos
-    Plotly); el JS muestra la del capítulo activo y oculta las demás. El
-    contenido textual es legible sin JS (los pasos son <section> con encabezado
-    y párrafos). Los GIF se referencian de forma relativa (media/*.gif)."""
+    El panel sticky contiene TODAS las capas de visual (globo, mapa, dos Plotly);
+    el JS muestra la del capítulo activo y oculta las demás. El contenido textual
+    es legible sin JS (los pasos son <section> con encabezado y párrafos). En el
+    capítulo de clima, el mapa Leaflet gana una capa animada (imageOverlay) con la
+    climatología mensual y un panel de control sobre el mapa (toggle precip/temp,
+    play/pausa, slider de mes y leyenda/colorbar)."""
     caps = _story_capitulos(meta)
 
     # Columna narrativa: un "paso" por capítulo (encabezado + párrafos).
@@ -1775,27 +1831,52 @@ def bloque_recorrido(meta, cfg_json: str, evento_div: str,
 
     # Panel sticky: capas superpuestas (una visible por capítulo).
     #  · Globo (contenedor para globe.gl; incluye fallback SVG mínimo).
-    #  · Mapa Leaflet nativo (#story-map).
-    #  · GIFs de climatología (referencia relativa media/*.gif).
+    #  · Mapa Leaflet nativo (#story-map). En el capítulo de clima se le añade
+    #    una capa climática (imageOverlay) + panel de control (clima_controls).
     #  · Los dos Plotly (evento + leaderboard), inyectados por Python.
     # data-cap en la leyenda del mapa permite al JS actualizar el texto.
-    gifs_layer = (
-        "<div class='story-layer story-layer-gif' data-layer='gif' hidden>"
-        "  <figure class='story-gif-fig'>"
-        "    <img class='story-gif' src='media/precip_clim.gif' loading='lazy'"
-        "         alt='Animación de la climatología mensual de precipitación "
-        "sobre la cuenca, con isolíneas'>"
-        "    <figcaption class='story-gif-cap'>Precipitación · climatología "
-        "mensual (mm)</figcaption>"
-        "  </figure>"
-        "  <figure class='story-gif-fig'>"
-        "    <img class='story-gif' src='media/temp_clim.gif' loading='lazy'"
-        "         alt='Animación de la climatología mensual de temperatura "
-        "sobre la cuenca, con isolíneas'>"
-        "    <figcaption class='story-gif-cap'>Temperatura · climatología "
-        "mensual (°C)</figcaption>"
-        "  </figure>"
-        "</div>")
+    #
+    # Panel de control de la capa climática: vive DENTRO de la capa del mapa
+    # (sobre el mapa, esquina superior derecha) y solo se muestra en el capítulo
+    # de clima (el JS le pone/quita [hidden]). Toggle precip/temp (segmented),
+    # botón play/pausa, slider de mes con etiqueta, y leyenda/colorbar (gradiente
+    # CSS construido por el JS a partir de los stops de la colormap).
+    clima_controls = """
+        <div class="story-clima" id="story-clima" hidden
+             aria-label="Control de la climatología mensual">
+          <div class="story-clima-row">
+            <div class="story-clima-seg" role="group"
+                 aria-label="Variable climática">
+              <button type="button" class="story-clima-var is-active"
+                      data-var="precip" aria-pressed="true">Precipitación</button>
+              <button type="button" class="story-clima-var"
+                      data-var="temp" aria-pressed="false">Temperatura</button>
+            </div>
+          </div>
+          <div class="story-clima-row story-clima-play">
+            <button type="button" class="story-clima-btn" id="story-clima-toggle"
+                    aria-label="Reproducir la animación mensual">
+              <span class="story-clima-btn-ico" aria-hidden="true">&#9654;</span>
+              <span class="story-clima-btn-lab">Reproducir</span>
+            </button>
+            <input type="range" class="story-clima-slider" id="story-clima-slider"
+                   min="0" max="11" step="1" value="0"
+                   aria-label="Mes de la climatología">
+            <span class="story-clima-mes mono" id="story-clima-mes"
+                  aria-live="polite">Ene</span>
+          </div>
+          <div class="story-clima-legend" id="story-clima-legend"
+               aria-hidden="true"></div>
+        </div>"""
+
+    map_layer = f"""
+        <!-- Mapa Leaflet nativo (satélite Esri + subcuencas + estaciones).
+             En el capítulo de clima añade una capa climática (imageOverlay). -->
+        <div class="story-layer story-layer-map" data-layer="mapa" hidden>
+          <div id="story-map" class="story-map"></div>
+          <div class="story-map-legend" id="story-map-legend" aria-hidden="true"></div>
+{clima_controls}
+        </div>"""
 
     panel = f"""
     <div class="story-sticky" aria-hidden="true">
@@ -1805,12 +1886,7 @@ def bloque_recorrido(meta, cfg_json: str, evento_div: str,
           <div id="story-globe" class="story-globe"></div>
           <div class="story-globe-fallback" aria-hidden="true"></div>
         </div>
-        <!-- Mapa Leaflet nativo (satélite Esri + subcuencas + estaciones). -->
-        <div class="story-layer story-layer-map" data-layer="mapa" hidden>
-          <div id="story-map" class="story-map"></div>
-          <div class="story-map-legend" id="story-map-legend" aria-hidden="true"></div>
-        </div>
-        {gifs_layer}
+{map_layer}
         <!-- Plotly · evento feb-2024. -->
         <div class="story-layer story-layer-plot" data-layer="evento" hidden>
           <div class="story-plot-card">{evento_div}</div>
@@ -2480,9 +2556,9 @@ b {{ font-weight:600; }}
 /* ── Paneles de pestaña ───────────────────────────────────────────── */
 main {{ display:block; }}
 .tabpanel[hidden] {{ display:none; }}
-.tabpanel {{ animation:panelIn .28s cubic-bezier(.4,0,.2,1) both; }}
+.tabpanel {{ animation:panelIn .38s cubic-bezier(.4,0,.2,1) both; }}
 .tabpanel:focus {{ outline:none; }}
-@keyframes panelIn {{ from {{ opacity:0; transform:translateY(8px); }}
+@keyframes panelIn {{ from {{ opacity:0; transform:translateY(6px); }}
   to {{ opacity:1; transform:none; }} }}
 .tab-body {{ max-width:var(--maxw); margin:0 auto;
   padding:clamp(28px,4vw,52px) var(--pad-x) 40px;
@@ -2991,7 +3067,7 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 /* ── STORYMAP «Recorrido» (scrollytelling) ────────────────────────── */
 /* Esta pestaña SÍ tiene scroll largo (a propósito): la columna narrativa
    avanza mientras un panel PEGAJOSO (sticky) muestra el visual del capítulo
-   activo (globo → mapa → GIF → gráficos). Las demás pestañas no cambian. */
+   activo (globo → mapa → clima → gráficos). Las demás pestañas no cambian. */
 .tab-body-story {{ padding-bottom:clamp(30px,4vw,56px); gap:clamp(20px,3vw,32px); }}
 /* Rejilla: narrativa (izquierda) + sticky (derecha). El sticky ocupa alto de
    viewport y se pega bajo la barra superior + de pestañas. */
@@ -3028,9 +3104,9 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   border:1px solid var(--border); box-shadow:var(--shadow);
   background:linear-gradient(180deg,#0A2230 0%,#0C1E2A 100%); }}
 /* Capas: superpuestas y en cruz-fundido (solo una activa a la vez). El JS
-   quita [hidden] a la activa y lo pone a las demás. */
+   quita [hidden] a la activa y lo pone a las demás. Fundido suave (~420 ms). */
 .story-layer {{ position:absolute; inset:0; opacity:0;
-  transition:opacity .5s ease; }}
+  transition:opacity .42s ease; }}
 .story-layer.is-active {{ opacity:1; }}
 .story-layer[hidden] {{ display:none; }}
 
@@ -3088,18 +3164,76 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   color:var(--ink); margin:11px 14px; line-height:1.5; }}
 .story-popup b {{ color:var(--deep); }}
 
-/* GIFs de climatología: dos animaciones apiladas, encajadas en el panel. */
-.story-layer-gif {{ display:flex; flex-direction:column;
-  gap:clamp(10px,1.6vw,18px); padding:clamp(12px,2vw,22px);
-  background:linear-gradient(180deg,#F1F6F9 0%, var(--surf) 100%);
-  align-items:center; justify-content:center; }}
-.story-gif-fig {{ margin:0; display:flex; flex-direction:column; gap:6px;
-  align-items:center; min-height:0; max-height:calc(50% - 8px); }}
-.story-gif {{ display:block; max-width:100%; max-height:100%; width:auto;
-  height:auto; object-fit:contain; border-radius:8px;
-  border:1px solid var(--border); background:#fff; box-shadow:var(--shadow-sm); }}
-.story-gif-cap {{ font-family:var(--sans); font-size:12px; font-weight:600;
-  color:var(--deep); letter-spacing:.01em; text-align:center; }}
+/* Capa climática (imageOverlay sobre el mapa): las dos imageOverlay de
+   cruz-fundido las crea Leaflet; aquí solo se afina su transición de opacidad
+   para que el paso de un mes al siguiente sea suave (el JS ajusta el valor). */
+.story-map .story-clima-ov {{ transition:opacity .7s ease; }}
+@media (prefers-reduced-motion:reduce) {{
+  .story-map .story-clima-ov {{ transition:none; }}
+}}
+
+/* Panel de control de la climatología (sobre el mapa, esquina superior
+   derecha). Sobrio y coherente con la paleta; solo visible en el cap. de
+   clima. Se apila sobre los controles de zoom de Leaflet (z alto). */
+.story-clima {{ position:absolute; top:12px; right:12px; z-index:600;
+  width:min(268px,calc(100% - 24px));
+  background:rgba(255,255,255,.95); border:1px solid var(--border);
+  border-radius:12px; box-shadow:0 2px 12px rgba(10,61,84,.20);
+  padding:12px 13px; font-family:var(--sans); color:var(--ink);
+  display:flex; flex-direction:column; gap:11px; }}
+.story-clima[hidden] {{ display:none; }}
+.story-clima-row {{ display:flex; align-items:center; gap:9px; }}
+/* Toggle precip/temp (segmented control). */
+.story-clima-seg {{ display:flex; width:100%; padding:3px;
+  background:#EEF3F6; border:1px solid var(--border); border-radius:999px; }}
+.story-clima-var {{ appearance:none; flex:1 1 0; cursor:pointer;
+  font-family:var(--sans); font-size:12px; font-weight:600; color:var(--muted);
+  background:transparent; border:0; border-radius:999px; padding:7px 8px;
+  line-height:1.1; white-space:nowrap;
+  transition:color .18s ease, background .18s ease, box-shadow .18s ease; }}
+.story-clima-var:hover {{ color:var(--deep); }}
+.story-clima-var.is-active {{ color:#fff; background:var(--accent);
+  box-shadow:0 1px 4px rgba(11,110,140,.35); }}
+.story-clima-var:focus-visible {{ outline:none;
+  box-shadow:0 0 0 3px rgba(11,110,140,.22); }}
+/* Fila play + slider + mes. */
+.story-clima-play {{ gap:10px; }}
+.story-clima-btn {{ appearance:none; flex:none; cursor:pointer;
+  display:inline-flex; align-items:center; gap:6px;
+  font-family:var(--sans); font-size:11.5px; font-weight:600; color:#fff;
+  background:var(--deep); border:0; border-radius:8px; padding:7px 11px 7px 9px;
+  line-height:1; white-space:nowrap;
+  transition:background .18s ease, transform .16s ease; }}
+.story-clima-btn:hover {{ background:var(--accent); }}
+.story-clima-btn:focus-visible {{ outline:none;
+  box-shadow:0 0 0 3px rgba(11,110,140,.28); }}
+.story-clima-btn-ico {{ font-size:10px; line-height:1; }}
+/* Slider de mes (acento agua, sobrio en ambos motores). */
+.story-clima-slider {{ appearance:none; -webkit-appearance:none; flex:1 1 auto;
+  min-width:0; height:4px; border-radius:999px; cursor:pointer;
+  background:linear-gradient(90deg,var(--accent) 0%,#CBD9E1 0%);
+  outline:none; }}
+.story-clima-slider::-webkit-slider-thumb {{ -webkit-appearance:none;
+  appearance:none; width:15px; height:15px; border-radius:50%;
+  background:var(--accent); border:2px solid #fff;
+  box-shadow:0 1px 4px rgba(10,61,84,.4); cursor:pointer; }}
+.story-clima-slider::-moz-range-thumb {{ width:15px; height:15px;
+  border-radius:50%; background:var(--accent); border:2px solid #fff;
+  box-shadow:0 1px 4px rgba(10,61,84,.4); cursor:pointer; }}
+.story-clima-slider:focus-visible {{ box-shadow:0 0 0 3px rgba(11,110,140,.22); }}
+.story-clima-mes {{ flex:none; min-width:2.6em; text-align:right;
+  font-variant-numeric:tabular-nums; font-size:12.5px; font-weight:600;
+  color:var(--deep); }}
+/* Leyenda/colorbar: gradiente CSS (stops de la colormap) + vmin/vmax/unidad. */
+.story-clima-legend {{ display:flex; flex-direction:column; gap:4px;
+  padding-top:2px; }}
+.story-clima-legend .cl-lab {{ font-size:10.5px; font-weight:600;
+  color:var(--muted); line-height:1.35; }}
+.story-clima-legend .cl-bar {{ height:9px; border-radius:999px;
+  border:1px solid rgba(10,61,84,.14); }}
+.story-clima-legend .cl-scale {{ display:flex; justify-content:space-between;
+  font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:10px;
+  color:var(--muted); }}
 
 /* Capas Plotly (evento / leaderboard): tarjeta clara centrada. */
 .story-layer-plot {{ display:flex; align-items:center; justify-content:center;
@@ -3124,7 +3258,14 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 }}
 @media (max-width:640px) {{
   .story-sticky {{ top:64px; height:min(52vh,420px); }}
-  .story-gif-fig {{ max-height:calc(50% - 6px); }}
+  /* En móvil el panel sticky se pega a 64px, pero la cabecera (topbar+tabbar)
+     mide ~126px: si el control fuese arriba quedaría bajo la barra de pestañas.
+     Se ancla ABAJO (la leyenda genérica del mapa se oculta en clima, así que el
+     espacio inferior está libre) y ocupa el ancho, compacto. */
+  .story-clima {{ top:auto; bottom:8px; right:8px; left:8px;
+    width:calc(100% - 16px); padding:10px 11px; gap:9px; }}
+  .story-clima-play {{ flex-wrap:wrap; }}
+  .story-clima-slider {{ order:3; flex-basis:100%; }}
 }}
 
 /* Reduced-motion: sin cruz-fundido brusco (cambio inmediato) y el globo no
@@ -3938,8 +4079,12 @@ JS_COUNTERS = """
 #                     Bajo reduced-motion no auto-rota (estático sobre Perú).
 #   · mapa:<vista>  — mapa Leaflet NATIVO (no iframe) con satélite Esri, límite y
 #                     subcuencas (color por elevación) y estaciones; se controla
-#                     por capítulo con flyTo/fitBounds + resaltado + leyenda.
-#   · gif           — dos GIF de climatología (referencia relativa media/*.gif).
+#                     por capítulo con flyTo/fitBounds + resaltado + leyenda. La
+#                     vista 'clima' añade una capa climática (L.imageOverlay con
+#                     los frames mensuales de precip/temp, cruz-fundida entre
+#                     meses) + un panel de control (toggle variable, play/pausa,
+#                     slider de mes y leyenda/colorbar). Auto-play ~1,4 s/mes; bajo
+#                     reduced-motion no hay auto-play ni cruz-fundido (solo slider).
 #   · evento        — Plotly del hidrograma feb-2024 (resize al mostrarse).
 #   · leaderboard   — Plotly NSE vs horizonte (resize al mostrarse).
 # La inicialización (globo/mapa) ocurre al mostrarse la pestaña "Recorrido"
@@ -3969,11 +4114,11 @@ JS_STORY = """
     }
     var layGlobe = layerByName('globo');
     var layMap = layerByName('mapa');
-    var layGif = layerByName('gif');
     var layEvento = layerByName('evento');
     var layLeader = layerByName('leaderboard');
 
-    // Mapea la "escena" de un paso (data-escena) a {layer, vista}.
+    // Mapea la "escena" de un paso (data-escena) a {layer, vista}. La vista
+    // 'clima' reutiliza el mapa Leaflet y activa la capa climática animada.
     function parseEscena(esc){
       esc = esc || '';
       if (esc.indexOf('mapa') === 0){
@@ -3981,7 +4126,6 @@ JS_STORY = """
         return { layer: layMap, vista: v };
       }
       if (esc === 'globo') return { layer: layGlobe };
-      if (esc === 'gif') return { layer: layGif };
       if (esc === 'evento') return { layer: layEvento };
       if (esc === 'leaderboard') return { layer: layLeader };
       if (esc === 'cierre') return { layer: layMap, vista: 'cierre' };
@@ -4165,7 +4309,237 @@ JS_STORY = """
       outletMarker.bindPopup('<b>' + CFG.outlet.nombre + '</b><br>Estación de ' +
         'aforo · salida de la cuenca<br>Código: ' + CFG.outlet.codigo,
         { className:'story-popup', maxWidth:280 });
+
+      // Capa climática: dos imageOverlay para cruz-fundido (una activa y otra
+      // que entra por encima con opacidad 0→objetivo mientras la anterior se
+      // desvanece). Se crean sin url y se añaden solo en la vista 'clima'.
+      climaInitOverlays();
     }
+
+    // ── Capa climática animada (imageOverlay + panel de control) ────────────
+    // Climatología mensual (precip/temp) ceñida a la cuenca. Dos imageOverlay
+    // para el cruz-fundido entre meses; auto-play ~1,4 s/mes; toggle de variable
+    // + slider + leyenda (colorbar por gradiente CSS). Respeta reduced-motion.
+    var CLIMA = CFG.clima || null;
+    var MES_DUR = 1400;               // ms por mes (animación lenta y suave)
+    var climaEl = document.getElementById('story-clima');
+    var climaToggle = document.getElementById('story-clima-toggle');
+    var climaSlider = document.getElementById('story-clima-slider');
+    var climaMesLab = document.getElementById('story-clima-mes');
+    var climaLegend = document.getElementById('story-clima-legend');
+    var climaVarBtns = climaEl ? Array.prototype.slice.call(
+      climaEl.querySelectorAll('.story-clima-var')) : [];
+    var climaOvA = null, climaOvB = null;   // dos capas de cruz-fundido
+    var climaFront = null;                    // capa visualmente al frente
+    var climaVar = 'precip';                  // 'precip' | 'temp'
+    var climaMes = 0;                         // 0..11
+    var climaPlaying = false;
+    var climaTimer = null;
+    var climaActive = false;                  // el capítulo de clima está activo
+    var climaPreloaded = {};                  // cache de <img> precargados
+    var OV_OPACITY = 0.82;
+
+    function climaBounds(){
+      // bounds: [[latmin,lonmin],[latmax,lonmax]] → L.latLngBounds.
+      if (!CLIMA || !CLIMA.bounds) return null;
+      var b = CLIMA.bounds;
+      return L.latLngBounds([b[0][0], b[0][1]], [b[1][0], b[1][1]]);
+    }
+
+    function climaFrames(){
+      var v = CLIMA && CLIMA.variables ? CLIMA.variables[climaVar] : null;
+      return (v && v.frames) ? v.frames : [];
+    }
+
+    function climaInitOverlays(){
+      if (!CLIMA || !map || climaOvA) return;
+      var lb = climaBounds();
+      if (!lb) return;
+      var opt = { opacity:0, interactive:false, crossOrigin:false,
+        className:'story-clima-ov', zIndex:450 };
+      // Píxel transparente 1x1 como url inicial (se reemplaza al mostrar).
+      var blank = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+      climaOvA = L.imageOverlay(blank, lb, opt);
+      climaOvB = L.imageOverlay(blank, lb,
+        Object.assign({}, opt, { zIndex:451 }));
+      climaFront = climaOvA;
+    }
+
+    // Precarga las 24 imágenes (ambas variables) para que el cruz-fundido sea
+    // fluido; se dispara al activar el capítulo de clima.
+    function climaPreload(){
+      if (!CLIMA || !CLIMA.variables) return;
+      ['precip','temp'].forEach(function(v){
+        var fr = (CLIMA.variables[v] || {}).frames || [];
+        fr.forEach(function(src){
+          if (climaPreloaded[src]) return;
+          var im = new Image(); im.src = src; climaPreloaded[src] = im;
+        });
+      });
+    }
+
+    // Muestra el mes `m` de la variable activa. Con `fade` hace cruz-fundido
+    // (dos capas); sin `fade` (reduced-motion o primera carga) intercambia la
+    // imagen en la capa frontal sin transición.
+    function climaShowMes(m, fade){
+      if (!map || !climaOvA) return;
+      var frames = climaFrames();
+      if (!frames.length) return;
+      climaMes = ((m % frames.length) + frames.length) % frames.length;
+      var src = frames[climaMes];
+      if (climaSlider){ climaSlider.value = String(climaMes); }
+      if (climaMesLab && CLIMA.meses){
+        climaMesLab.textContent = CLIMA.meses[climaMes] || '';
+      }
+      climaSliderFill();
+      if (!fade){
+        // Swap directo en la capa frontal.
+        if (!map.hasLayer(climaFront)){ climaFront.addTo(map); }
+        climaFront.setUrl(src);
+        climaFront.setOpacity(OV_OPACITY);
+        var other0 = (climaFront === climaOvA) ? climaOvB : climaOvA;
+        if (other0){ other0.setOpacity(0); }
+        return;
+      }
+      // Cruz-fundido: la capa de atrás recibe la nueva imagen y sube su
+      // opacidad mientras la frontal (imagen previa) se desvanece.
+      var incoming = (climaFront === climaOvA) ? climaOvB : climaOvA;
+      var outgoing = climaFront;
+      if (!map.hasLayer(incoming)){ incoming.addTo(map); }
+      incoming.setUrl(src);
+      // Fuerza reflow y anima la opacidad (la transición vive en el CSS del img).
+      incoming.setOpacity(0);
+      requestAnimationFrame(function(){
+        incoming.setOpacity(OV_OPACITY);
+        if (outgoing){ outgoing.setOpacity(0); }
+      });
+      climaFront = incoming;
+    }
+
+    // Rellena visualmente el slider (parte "recorrida" en acento agua).
+    function climaSliderFill(){
+      if (!climaSlider) return;
+      var max = parseFloat(climaSlider.max) || 11;
+      var pct = max > 0 ? (climaMes / max) * 100 : 0;
+      climaSlider.style.background =
+        'linear-gradient(90deg,var(--accent) ' + pct + '%,#CBD9E1 ' + pct + '%)';
+    }
+
+    function climaStop(){
+      climaPlaying = false;
+      if (climaTimer){ clearInterval(climaTimer); climaTimer = null; }
+      climaUpdateToggle();
+    }
+
+    function climaPlay(){
+      if (reduce) return;                 // sin auto-play bajo reduced-motion
+      var frames = climaFrames();
+      if (frames.length < 2) return;
+      climaPlaying = true;
+      climaUpdateToggle();
+      if (climaTimer){ clearInterval(climaTimer); }
+      climaTimer = setInterval(function(){
+        climaShowMes(climaMes + 1, true);
+      }, MES_DUR);
+    }
+
+    function climaTogglePlay(){
+      if (climaPlaying){ climaStop(); } else { climaPlay(); }
+    }
+
+    function climaUpdateToggle(){
+      if (!climaToggle) return;
+      var ico = climaToggle.querySelector('.story-clima-btn-ico');
+      var lab = climaToggle.querySelector('.story-clima-btn-lab');
+      if (climaPlaying){
+        if (ico){ ico.innerHTML = '&#10073;&#10073;'; }
+        if (lab){ lab.textContent = 'Pausa'; }
+        climaToggle.setAttribute('aria-label', 'Pausar la animación mensual');
+      } else {
+        if (ico){ ico.innerHTML = '&#9654;'; }
+        if (lab){ lab.textContent = 'Reproducir'; }
+        climaToggle.setAttribute('aria-label', 'Reproducir la animación mensual');
+      }
+    }
+
+    // Construye la leyenda/colorbar (gradiente CSS con los stops de la colormap
+    // + vmin/vmax/unidad) para la variable activa.
+    function climaRenderLegend(){
+      if (!climaLegend || !CLIMA || !CLIMA.variables) return;
+      var v = CLIMA.variables[climaVar];
+      if (!v){ climaLegend.innerHTML = ''; return; }
+      var grad = 'linear-gradient(90deg,' + (v.stops || []).join(',') + ')';
+      var vmin = (v.vmin != null) ? v.vmin : 0;
+      var vmax = (v.vmax != null) ? v.vmax : 1;
+      function fmt(x){
+        var r = Math.round(x * 10) / 10;
+        return (Math.abs(r) >= 100 ? Math.round(r) : r)
+          .toLocaleString('es');
+      }
+      climaLegend.innerHTML =
+        '<span class="cl-lab">' + (v.label || '') + '</span>' +
+        '<span class="cl-bar" style="background:' + grad + '"></span>' +
+        '<span class="cl-scale"><span>' + fmt(vmin) + '</span>' +
+        '<span>' + (v.unidad || '') + '</span>' +
+        '<span>' + fmt(vmax) + '</span></span>';
+    }
+
+    // Cambia de variable (precip/temp): actualiza botones, leyenda, frames y
+    // repinta el mes actual (sin fundido para no arrastrar la otra variable).
+    function climaSetVar(v){
+      if (v === climaVar) return;
+      climaVar = v;
+      climaVarBtns.forEach(function(b){
+        var on = (b.getAttribute('data-var') === v);
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      climaRenderLegend();
+      // Repinta ambas capas al mes actual sin transición (evita mezclar mapas
+      // de color distintos): resetea opacidades y usa la capa frontal.
+      var src = climaFrames()[climaMes];
+      if (src && climaFront){
+        if (!map.hasLayer(climaFront)){ climaFront.addTo(map); }
+        climaFront.setUrl(src); climaFront.setOpacity(OV_OPACITY);
+        var other = (climaFront === climaOvA) ? climaOvB : climaOvA;
+        if (other){ other.setOpacity(0); }
+      }
+    }
+
+    // Activa/desactiva la capa climática al entrar/salir del capítulo de clima.
+    function setClimaActive(on){
+      climaActive = on;
+      if (climaEl){ climaEl.hidden = !on; }
+      if (!on){
+        climaStop();
+        if (climaOvA && map && map.hasLayer(climaOvA)){ map.removeLayer(climaOvA); }
+        if (climaOvB && map && map.hasLayer(climaOvB)){ map.removeLayer(climaOvB); }
+        return;
+      }
+      if (!CLIMA){ if (climaEl){ climaEl.hidden = true; } return; }
+      climaInitOverlays();
+      climaPreload();
+      climaRenderLegend();
+      // Pinta el mes actual sin fundido (arranque), luego auto-play si procede.
+      climaShowMes(climaMes, false);
+      if (!reduce){ climaPlay(); } else { climaUpdateToggle(); }
+    }
+
+    // Cableado de los controles de clima (una sola vez).
+    if (climaToggle){
+      climaToggle.addEventListener('click', function(){ climaTogglePlay(); });
+    }
+    if (climaSlider){
+      climaSlider.addEventListener('input', function(){
+        climaStop();                       // interacción manual detiene el play
+        climaShowMes(parseInt(climaSlider.value, 10) || 0, false);
+      });
+    }
+    climaVarBtns.forEach(function(b){
+      b.addEventListener('click', function(){
+        climaSetVar(b.getAttribute('data-var') || 'precip');
+      });
+    });
 
     // Límites de la cuenca (bounds) para encuadres.
     function cuencaBounds(){
@@ -4181,12 +4555,16 @@ JS_STORY = """
       // Capas visibles según el capítulo:
       //  · cuenca      → solo subcuencas por elevación (sin estaciones ni outlet).
       //  · outlet      → resalta la estación de salida (zona de crecida).
+      //  · clima       → capa climática animada (imageOverlay) sobre el satélite.
       //  · estaciones  → aparecen todas las estaciones (aforo + meteo).
       //  · cierre      → vista general con las estaciones (mensaje de producto).
       var mostrarEst = (vista === 'estaciones' || vista === 'cierre');
       var mostrarOutlet = (vista === 'outlet');
+      var esClima = (vista === 'clima');
       if (mostrarEst){ addLayer(estLayer); } else { delLayer(estLayer); }
       if (mostrarOutlet){ addLayer(outletMarker); } else { delLayer(outletMarker); }
+      // Activa/desactiva la capa climática (panel + overlays) al entrar/salir.
+      setClimaActive(esClima);
 
       setLegend(vista);
       if (vista === mapaVistaActual){ return; }
@@ -4196,6 +4574,12 @@ JS_STORY = """
       if (vista === 'outlet'){
         map.flyTo([CFG.outlet.lat, CFG.outlet.lon], 12,
           { duration: anim ? 1.6 : 0, animate: anim });
+      } else if (esClima){
+        // Clima → encuadra los bounds de la climatología (la cuenca completa)
+        // para que la capa calce con el satélite.
+        var cb = climaBounds() || cuencaBounds();
+        if (cb){ map.flyToBounds(cb, { padding:[24,24], duration: anim ? 1.4 : 0,
+          animate: anim }); }
       } else {
         // cuenca / estaciones / cierre → encuadre general de la cuenca.
         var b = cuencaBounds();
@@ -4230,6 +4614,8 @@ JS_STORY = """
           '<span class="lg-dot" style="color:' + CFG.col_warn +
             '">&#9679;</span> Meteorológica (lluvia)';
       }
+      // En 'clima' la leyenda vive en el panel de control (colorbar), así que
+      // la leyenda genérica del mapa se oculta para no duplicar.
       legendEl.innerHTML = html;
       legendEl.style.opacity = html ? '1' : '0';
     }
@@ -4266,6 +4652,10 @@ JS_STORY = """
           try { if (map){ map.invalidateSize(); } } catch(e){}
           setMapView(info.vista || 'cuenca');
         }, reduce ? 0 : 120);
+      } else {
+        // Al salir del mapa (globo/evento/leaderboard) se detiene y oculta la
+        // capa climática (evita que el auto-play siga fuera de vista).
+        if (mapInit){ setClimaActive(false); }
       }
       if (info.layer === layEvento){ resizePlot(layEvento); }
       if (info.layer === layLeader){ resizePlot(layLeader); }
@@ -4326,8 +4716,9 @@ JS_STORY = """
           setGlobeSpinning(escenaActual === 'globo' || escenaActual === 'intro');
         }, 160);
       } else {
-        // Salimos de "Recorrido": pausa el globo (rendimiento).
+        // Salimos de "Recorrido": pausa el globo y la animación climática.
         pauseGlobe();
+        if (mapInit){ climaStop(); }
       }
     });
 
@@ -4351,7 +4742,8 @@ JS_STORY = """
 
 def main():
     (serie, metr, meta, subs, lim, fcast, mens, enso, acf, ccf,
-     estaciones, enso_abl, enso_extra, emb_coords, emb_sil) = cargar()
+     estaciones, enso_abl, enso_extra, emb_coords, emb_sil,
+     clima_meta) = cargar()
     imgs = cargar_imagenes()
     print("Datos cargados. Construyendo componentes...")
     if imgs:
@@ -4374,7 +4766,7 @@ def main():
     cfg_embed = embeddings_datos(emb_coords, emb_sil)
     embed_div = bloque_embeddings(cfg_embed)
     # Recorrido (storytelling): payload del mapa + figuras propias + sección.
-    cfg_story = storymap_datos(meta, subs, lim, estaciones)
+    cfg_story = storymap_datos(meta, subs, lim, estaciones, clima_meta)
     story_evento_div = construir_evento_recorrido(serie)
     story_leaderboard_div = construir_leaderboard_recorrido(metr)
     recorrido_div = bloque_recorrido(meta, cfg_story, story_evento_div,

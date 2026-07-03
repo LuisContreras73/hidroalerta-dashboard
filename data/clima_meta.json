@@ -1,0 +1,40 @@
+{
+  "bounds": [
+    [
+      -11.662360386999922,
+      -77.24899949999991
+    ],
+    [
+      -11.013548226999944,
+      -76.45692920699992
+    ]
+  ],
+  "meses": [
+    "Ene",
+    "Feb",
+    "Mar",
+    "Abr",
+    "May",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dic"
+  ],
+  "precip": {
+    "vmin": 1.3,
+    "vmax": 200.3,
+    "unidad": "mm/mes",
+    "cmap": "YlGnBu",
+    "label": "Precipitación (PISCOp v2.1)"
+  },
+  "temp": {
+    "vmin": 3.2,
+    "vmax": 26.2,
+    "unidad": "°C",
+    "cmap": "RdYlBu_r",
+    "label": "Temperatura media (PISCOt v1.2)"
+  }
+}
