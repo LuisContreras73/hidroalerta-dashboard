@@ -1,0 +1,77 @@
+{
+ "bounds": [
+  -77.24874877929688,
+  -11.662083625793457,
+  -76.45708465576172,
+  -11.013750076293945
+ ],
+ "meses": [
+  "Ene",
+  "Feb",
+  "Mar",
+  "Abr",
+  "May",
+  "Jun",
+  "Jul",
+  "Ago",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dic"
+ ],
+ "clima": {
+  "precip": {
+   "n": 12,
+   "vmin": 0.0,
+   "vmax": 153.0,
+   "unidad": "mm/mes",
+   "cmap": "YlGnBu",
+   "label": "Precipitación media mensual (PISCOp)"
+  },
+  "temp": {
+   "n": 12,
+   "vmin": 2.7,
+   "vmax": 26.3,
+   "unidad": "°C",
+   "cmap": "RdYlBu_r",
+   "label": "Temperatura media mensual (PISCOt)"
+  },
+  "humedos": [
+   12,
+   1,
+   2,
+   3,
+   4
+  ]
+ },
+ "evento": {
+  "n": 46,
+  "picoFecha": "2023-03-15",
+  "picoQ": 113.4,
+  "baseQ": 9.4,
+  "vmaxPr": 22.0
+ },
+ "era5": {
+  "suelo": {
+   "n": 12,
+   "vmin": 0.041,
+   "vmax": 0.42,
+   "unidad": "m³/m³",
+   "label": "Humedad de suelo (ERA5-Land)"
+  },
+  "nieve": {
+   "n": 12,
+   "vmin": 0.0,
+   "vmax": 19.0,
+   "unidad": "%",
+   "label": "Cobertura de nieve (ERA5-Land)"
+  },
+  "veg": {
+   "n": 12,
+   "vmin": 0.84,
+   "vmax": 5.15,
+   "unidad": "LAI",
+   "label": "Vegetación / LAI (ERA5-Land)"
+  }
+ }
+}

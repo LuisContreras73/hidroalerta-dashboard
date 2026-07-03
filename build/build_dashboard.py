@@ -33,6 +33,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from folium.plugins import Fullscreen
 
+import storymap_immersive as SM   # storymap inmersivo «El viaje del agua» (deck.gl 3D)
+
 # ── Rutas ──────────────────────────────────────────────────────────────────
 HERE = Path(__file__).resolve().parent
 PUB = HERE.parent
@@ -4765,12 +4767,23 @@ def main():
     enso_r2_div = construir_enso_r2(enso, enso_extra)
     cfg_embed = embeddings_datos(emb_coords, emb_sil)
     embed_div = bloque_embeddings(cfg_embed)
-    # Recorrido (storytelling): payload del mapa + figuras propias + sección.
-    cfg_story = storymap_datos(meta, subs, lim, estaciones, clima_meta)
-    story_evento_div = construir_evento_recorrido(serie)
+    # Recorrido inmersivo «El viaje del agua» (deck.gl 3D + timelapses + GIS).
+    # Los assets (terreno/ríos/subcuencas/puntos/timelapses/evento) ya están curados
+    # en data/ y docs/media/; aquí se embeben inline (autocontenido) para el JS.
     story_leaderboard_div = construir_leaderboard_recorrido(metr)
-    recorrido_div = bloque_recorrido(meta, cfg_story, story_evento_div,
-                                     story_leaderboard_div)
+    story_forecast_div = construir_evento_recorrido(serie)
+    meta_story = dict(meta); meta_story["umbral_q90"] = UMBRAL_Q90
+    sm_data = {
+        "terrain":   json.loads((DATA / "terrain_meta.json").read_text(encoding="utf-8")),
+        "timelapse": json.loads((DATA / "timelapse_meta.json").read_text(encoding="utf-8")),
+        "evento":    json.loads((DATA / "evento.json").read_text(encoding="utf-8")),
+        "rios":      json.loads((DATA / "rios.geojson").read_text(encoding="utf-8")),
+        "subs":      json.loads((DATA / "sm_subcuencas.geojson").read_text(encoding="utf-8")),
+        "puntos":    json.loads((DATA / "puntos.geojson").read_text(encoding="utf-8")),
+    }
+    recorrido_div = SM.recorrido_html(
+        meta_story, story_leaderboard_div, story_forecast_div,
+        json.dumps(sm_data, ensure_ascii=False, separators=(",", ":")))
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
@@ -4788,13 +4801,9 @@ def main():
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-<!-- Leaflet (mapa nativo del storytelling "Recorrido"): CSS + JS por CDN. -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<!-- globe.gl para el Cap. 1 (globo terráqueo 3D). Trae three.js embebido; sin
-     token ni Mapbox. Un único bundle evita el aviso de doble instancia de Three. -->
-<script src="https://unpkg.com/globe.gl@2.32.2/dist/globe.gl.min.js"></script>
+{SM.CDN_HEAD}
 <style>{estilos()}</style>
+<style>{SM.CSS}</style>
 </head>
 <body>
 {cuerpo}
@@ -4803,7 +4812,7 @@ def main():
 <script>{JS_FORECAST}</script>
 <script>{JS_EMBED}</script>
 <script>{JS_COUNTERS}</script>
-<script>{JS_STORY}</script>
+<script>{SM.JS}</script>
 </body>
 </html>
 """
