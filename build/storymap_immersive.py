@@ -109,15 +109,17 @@ def _capitulos(meta) -> list:
                  "sobre la costa central. Avance día a día: la lluvia se enciende sobre la "
                  "cuenca mientras el <b>caudal observado</b> en Santo Domingo se dispara.",
                  "De un caudal habitual cercano a <b>17 m³/s</b>, el río llegó a "
-                 "<b>113 m³/s el 15 de marzo</b> —más de seis veces lo normal—. Es "
-                 "exactamente el tipo de crecida que un sistema de alerta debe ver venir.",
+                 "<b>113 m³/s el 15 de marzo</b> —más de seis veces lo normal, nivel "
+                 "<b>Fuerte</b> (naranja) del protocolo RM-049—. Es exactamente el tipo de "
+                 "crecida que un sistema de alerta debe ver venir.",
              ]),
         dict(id="alerta", num="09", eyebrow="Del pronóstico al aviso",
              titulo="Del viaje del agua a la alerta temprana",
              parrafos=[
                  f"A la salida de la cuenca, la estación <b>{est.get('nombre','Santo Domingo')}</b> "
-                 f"mide el caudal que llega al valle. Cuando supera el <b>umbral Q90 = "
-                 f"{umbral:.1f} m³/s</b>, hablamos de crecida peligrosa.",
+                 f"mide el caudal que llega al valle. Sobre el nivel de <b>vigilancia "
+                 f"(Q90 = {umbral:.0f} m³/s)</b> arranca el seguimiento; los niveles "
+                 f"<b>Moderado · Fuerte · Extremo</b> (RM-049) escalan el aviso de crecida.",
                  "El modelo <b>RA-TFT</b> sostiene la habilidad de pronóstico con varios días de "
                  "ventaja: cada día ganado es tiempo para alertar, evacuar o manejar el "
                  "riego. Ese es el destino del viaje: <b>convertir el agua en información y la "
@@ -684,12 +686,22 @@ JS = r"""
     var trQ={x:x,y:q,type:'scatter',mode:'lines',line:{color:'#1BA8C4',width:2.4},
              fill:'tozeroy',fillcolor:'rgba(27,168,196,0.18)',name:'Caudal',hoverinfo:'skip'};
     var trPr={x:x,y:pr,type:'bar',yaxis:'y2',marker:{color:'rgba(127,211,230,0.5)'},name:'Lluvia',hoverinfo:'skip'};
-    var lay={margin:{l:36,r:36,t:6,b:20},height:150,paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+    // niveles de peligro RM-049 (Yaku alcanza 'Fuerte') + vigilancia Q90
+    var lvl=[], ann=[];
+    (D.niveles||[]).forEach(function(nv){
+      lvl.push({type:'line',xref:'paper',x0:0,x1:1,y0:nv.u,y1:nv.u,line:{color:nv.hex,width:1.2,dash:'dot'}});
+      ann.push({xref:'paper',x:0.99,y:nv.u,xanchor:'right',yanchor:'bottom',text:nv.n,showarrow:false,font:{size:8,color:nv.hex}});
+    });
+    if(D.q90!=null) lvl.push({type:'line',xref:'paper',x0:0,x1:1,y0:D.q90,y1:D.q90,line:{color:'#8aa0ac',width:1,dash:'dot'}});
+    var qv=q.filter(function(v){return v!=null;});
+    var ymax=Math.max(128,(qv.length?Math.max.apply(null,qv):100)*1.12);
+    var dayMk={type:'line',x0:x[0],x1:x[0],y0:0,y1:1,yref:'paper',line:{color:'#ffffff',width:1.8,dash:'dot'}};
+    var lay={margin:{l:36,r:40,t:6,b:20},height:150,paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
       showlegend:false,font:{color:'#cfe2ea',size:9,family:'IBM Plex Sans'},
       xaxis:{showgrid:false,tickfont:{size:8},nticks:5,color:'#9fb8c2'},
-      yaxis:{title:{text:'m³/s',font:{size:9}},rangemode:'tozero',gridcolor:'rgba(150,180,195,.18)',zeroline:false},
+      yaxis:{title:{text:'m³/s',font:{size:9}},range:[0,ymax],gridcolor:'rgba(150,180,195,.18)',zeroline:false},
       yaxis2:{overlaying:'y',side:'right',autorange:'reversed',showgrid:false,tickfont:{size:8},color:'#9fb8c2'},
-      shapes:[{type:'line',x0:x[0],x1:x[0],y0:0,y1:1,yref:'paper',line:{color:'#C0392B',width:2,dash:'dot'}}]};
+      shapes:[dayMk].concat(lvl), annotations:ann};
     Plotly.newPlot('sm-hydro-plot',[trQ,trPr],lay,{displayModeBar:false,responsive:true,staticPlot:reduce});
     hydroInit=true;
   }

@@ -43,8 +43,21 @@ DOCS = PUB / "docs"
 ASSETS = PUB / "assets"
 DOCS.mkdir(parents=True, exist_ok=True)
 
-UMBRAL_Q90 = 40.89                       # m3/s — umbral de alerta de crecidas
+UMBRAL_Q90 = 40.89                       # m3/s — nivel de VIGILANCIA (p90 diario; base de la evaluación)
 FECHA_ACTUALIZACION = "2 de julio de 2026"
+
+# Niveles de peligro por CRECIDA del Protocolo RM-049-2020-PCM (INDECI/SENAMHI),
+# con umbrales por periodo de retorno estimados de la serie OBSERVADA en Santo Domingo
+# (47E214D2, máximos anuales 2020–2024, Gumbel). Estimación PRELIMINAR: solo 4 años de
+# registro observado → a refinar con la serie histórica de SENAMHI/ANA.
+# (nombre, color_protocolo, umbral m3/s, periodo_retorno_años, hex)
+NIVELES_ALERTA = [
+    ("Moderado", "Amarillo", 87.2,  2.33, "#E0A81E"),
+    ("Fuerte",   "Naranja",  104.1, 5,    "#E07B39"),
+    ("Extremo",  "Rojo",     117.8, 10,   "#C0392B"),
+]
+PROTOCOLO_URL = ("https://portal.indeci.gob.pe/wp-content/uploads/2020/03/"
+                 "RM-N%C2%B0-049-2020-PCM-PROTOCOLO-LLUVIAS-INTENSAS.pdf")
 
 # ── Sistema de diseño (paleta fría científica; tokens exactos) ────────────────
 # Papel / superficie / tinta / muted / hairlines con sesgo azul frío.
@@ -723,7 +736,7 @@ def tabla_metricas_html(metr: pd.DataFrame) -> str:
     mejor. El chip resalta el mejor valor de cada columna dentro del horizonte.
     <b>Persistencia</b> es un baseline de referencia (naive): repite el último
     caudal observado, por lo que domina el NSE a 1 día por construcción sin
-    anticipar cambios. <b>RA-TFT</b> es el modelo de pronóstico propuesto,
+    pronosticar cambios. <b>RA-TFT</b> es el modelo de pronóstico propuesto,
     evaluado sin contaminación del objetivo.</p>
     """
 
@@ -817,7 +830,7 @@ def construir_evento(fcast: pd.DataFrame) -> str:
 
     fig.add_hline(
         y=UMBRAL_Q90, line=dict(color=COL_CRIT, width=1.6, dash="dot"),
-        annotation_text=f"Umbral Q90 = {UMBRAL_Q90} m³/s",
+        annotation_text=f"Vigilancia Q90 = {UMBRAL_Q90} m³/s",
         annotation_position="top left",
         annotation_font=dict(color=COL_CRIT, size=12, family=FONT_MONO))
 
@@ -1235,20 +1248,27 @@ def construir_eda(acf: pd.DataFrame, ccf: pd.DataFrame) -> str:
 
 
 # ── KPIs editoriales (resumen) ────────────────────────────────────────────────
-def kpi_cards(serie: pd.DataFrame) -> str:
+def kpi_cards(serie: pd.DataFrame, metr: pd.DataFrame) -> str:
     """Fila de indicadores editoriales: números mono grandes separados por
     hairlines (sin cajas). El estado (agua vs. crítico) se codifica en el color
-    del número y una pequeña etiqueta, no en un borde de tarjeta."""
+    del número y una pequeña etiqueta, no en un borde de tarjeta.
+    Valores del modelo PROPUESTO (RA-TFT) a 1 día, tomados de metricas_modelos.csv
+    (misma fuente que la tabla de Modelos y la banda de resultados → sin contradicciones)."""
     dias_alerta = int((serie["obs"] >= UMBRAL_Q90).sum())
+    r = metr[metr["model"] == "RA-TFT"].set_index("lead")
+    def g(ld, c):
+        try: return float(r.loc[ld, c])
+        except Exception: return float("nan")
+    nse1, pod1, far1 = g(1, "NSE"), g(1, "POD"), g(1, "FAR")
     indicadores = [
         # (etiqueta, valor, unidad, descripción, estado)
-        ("NSE · 1 día", "0.966", "", "Eficiencia Nash–Sutcliffe del mejor "
-         "modelo a un día de horizonte", "acc"),
-        ("POD", "0.824", "", "Probabilidad de detección de crecidas "
-         "(alertas correctas sobre el total de eventos)", "acc"),
-        ("FAR", "0.176", "", "Tasa de falsas alarmas (alertas emitidas sin "
-         "evento observado)", "acc"),
-        ("Umbral Q90", "40.9", "m³/s", "Caudal de alerta de crecidas "
+        ("NSE · 1 día", f"{nse1:.2f}", "", "Eficiencia Nash–Sutcliffe del modelo "
+         "propuesto (RA-TFT) a un día de horizonte", "acc"),
+        ("POD · 1 día", f"{pod1:.2f}", "", "Probabilidad de detección de crecidas "
+         "(umbral Q90) del modelo propuesto a un día", "acc"),
+        ("FAR · 1 día", f"{far1:.2f}", "", "Tasa de falsas alarmas (umbral Q90) "
+         "del modelo propuesto a un día", "acc"),
+        ("Vigilancia Q90", "40.9", "m³/s", "Nivel de vigilancia de crecidas "
          "(percentil 90 de la serie observada)", "crit"),
         ("Días en alerta", f"{dias_alerta}", "días", "Días observados con "
          "caudal en o sobre el umbral (2024–2025)", "crit"),
@@ -1628,7 +1648,7 @@ def construir_evento_recorrido(serie: pd.DataFrame) -> str:
 
     fig.add_hline(
         y=UMBRAL_Q90, line=dict(color=COL_CRIT, width=1.6, dash="dot"),
-        annotation_text=f"Umbral de alerta Q90 = {UMBRAL_Q90} m³/s",
+        annotation_text=f"Vigilancia Q90 = {UMBRAL_Q90} m³/s",
         annotation_position="top left",
         annotation_font=dict(color=COL_CRIT, size=12, family=FONT_MONO))
 
@@ -1912,11 +1932,123 @@ def bloque_recorrido(meta, cfg_json: str, evento_div: str,
     <script id="story-data" type="application/json">{cfg_json}</script>"""
 
 
+# ── Resultados-primero + marco institucional (RM-049) ─────────────────────────
+def banda_resultados(metr) -> str:
+    """Banda de RESULTADOS clave (lo primero para el tomador de decisiones).
+    Enmarca con honestidad: el pronóstico CONTINUO (NSE) se sostiene a varios días,
+    mientras que la detección BINARIA de crecida (umbral Q90) es fiable a 1–2 días."""
+    r = metr[metr["model"] == "RA-TFT"].set_index("lead")
+    def g(ld, col):
+        try: return float(r.loc[ld, col])
+        except Exception: return float("nan")
+    nse1, nse7, nse14 = g(1, "NSE"), g(7, "NSE"), g(14, "NSE")
+    pod1, far1, csi1 = g(1, "POD"), g(1, "FAR"), g(1, "CSI")
+    tarjetas = [
+        ("Habilidad de pronóstico", f"{nse1:.2f}", "NSE · 1 día",
+         f"NSE {nse7:.2f} a 7 d · {nse14:.2f} a 14 d — habilidad sostenida", COL_ACCENT),
+        ("Detección de crecida · 1 día", f"{pod1*100:.0f}%", "aciertos (POD) · Q90",
+         f"FAR {far1*100:.0f}% · CSI {csi1:.2f} — fiable a 1–2 días", COL_CYAN),
+        ("Evento Ciclón Yaku · mar 2023", "113", "m³/s observados",
+         "alcanzó nivel <b>Fuerte</b> (naranja) · RM-049", NIVELES_ALERTA[1][4]),
+        ("Ventana de pronóstico", "14", "días de horizonte",
+         "amplía el «plazo extendido» operativo (≤4 d)", COL_DEEP),
+    ]
+    cards = "".join(
+        f"<div class='res-card'><p class='res-lab'>{lab}</p>"
+        f"<p class='res-num' style='color:{col}'>{num}"
+        f"<span class='res-unit'>{unit}</span></p>"
+        f"<p class='res-sub'>{sub}</p></div>"
+        for lab, num, unit, sub, col in tarjetas)
+    return (f"<section class='reveal resultados' aria-label='Resultados clave'>"
+            f"<p class='eyebrow'>Resultados · qué logra el sistema</p>"
+            f"<div class='res-grid'>{cards}</div>"
+            f"<p class='res-foot'>Verificado contra el aforo observado (47E214D2). "
+            f"El pronóstico de caudal sostiene habilidad hasta 14 días; la detección "
+            f"binaria de crecida (Q90) es fiable a 1–2 días.</p></section>")
+
+
+def bloque_protocolo() -> str:
+    """Marco institucional: cadena pronóstico→aviso→alerta→alarma (RM-049-2020-PCM)
+    y niveles de peligro por crecida (umbrales por periodo de retorno; preliminar)."""
+    pasos = [
+        ("SENAMHI", "Pronostica el caudal y emite el <b>aviso de crecida</b>"),
+        ("INDECI · COE", "Centraliza y analiza; consolida el escenario de riesgo"),
+        ("Gobierno reg./local", "Emite la <b>alerta</b> y la <b>alarma</b>"),
+        ("Población", "Toma precauciones y evacúa"),
+    ]
+    flujo = "<span class='proto-arrow' aria-hidden='true'>→</span>".join(
+        f"<div class='proto-step'><span class='proto-actor'>{a}</span>"
+        f"<span class='proto-do'>{d}</span></div>" for a, d in pasos)
+    niveles = "".join(
+        f"<div class='nivel' style='--nc:{hx}'><span class='nivel-dot'></span>"
+        f"<span class='nivel-name'>{nombre}<span class='nivel-col'>{color}</span></span>"
+        f"<span class='nivel-val mono'>≥ {umbral:.0f} m³/s</span>"
+        f"<span class='nivel-tr'>T ≈ {tr} años</span></div>"
+        for nombre, color, umbral, tr, hx in NIVELES_ALERTA)
+    return (f"<section class='reveal protocolo' aria-label='Marco institucional RM-049'>"
+            f"<p class='eyebrow eyebrow-cyan'>Marco institucional · Protocolo RM-049-2020-PCM</p>"
+            f"<h2 class='h-serif'>Del pronóstico al aviso, la alerta y la alarma</h2>"
+            f"<p class='prose'>El sistema se inserta en la cadena oficial del SINAGERD: "
+            f"aporta el <b>pronóstico de caudal</b> que sustenta el aviso de crecida y su "
+            f"escalamiento a alerta y alarma para la población del valle.</p>"
+            f"<div class='proto-flujo'>{flujo}</div>"
+            f"<p class='eyebrow' style='margin-top:26px'>Niveles de peligro por crecida "
+            f"· umbral de vigilancia Q90 = {UMBRAL_Q90:.0f} m³/s</p>"
+            f"<div class='niveles'>{niveles}</div>"
+            f"<p class='res-foot'>Umbrales por periodo de retorno estimados de la serie "
+            f"observada 2020–2024 (Gumbel, máximos anuales): <b>estimación preliminar</b> "
+            f"—4 años de registro— a refinar con la serie histórica de SENAMHI/ANA. "
+            f"<a href='{PROTOCOLO_URL}' target='_blank' rel='noopener'>Ver protocolo (INDECI)</a>.</p>"
+            f"</section>")
+
+
+# CSS de los bloques Resultados + Protocolo (string plano; se inyecta aparte).
+CSS_RESULTADOS = r"""
+/* ── Resultados-primero ── */
+.resultados{margin-bottom:38px;}
+.res-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#E2E8EE;
+  border:1px solid #E2E8EE;border-radius:14px;overflow:hidden;margin-top:10px;}
+.res-card{background:#FFFFFF;padding:18px 20px 16px;display:flex;flex-direction:column;gap:6px;}
+.res-lab{font-family:var(--sans,'IBM Plex Sans',sans-serif);font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.08em;color:#5B6B78;margin:0;line-height:1.25;}
+.res-num{font-family:var(--mono,'IBM Plex Mono',monospace);font-weight:600;
+  font-size:2.3rem;line-height:1;margin:2px 0 0;font-variant-numeric:tabular-nums;
+  display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.res-unit{font-family:var(--sans,sans-serif);font-size:11.5px;font-weight:500;color:#5B6B78;
+  letter-spacing:.01em;}
+.res-sub{font-family:var(--sans,sans-serif);font-size:12.5px;color:#5B6B78;margin:2px 0 0;line-height:1.4;}
+.res-sub b,.res-foot b{color:#0C1E2A;font-weight:600;}
+.res-foot{font-family:var(--sans,sans-serif);font-size:12px;color:#7A8894;margin:12px 2px 0;line-height:1.5;}
+.res-foot a{color:#0B6E8C;text-decoration:underline;text-underline-offset:2px;}
+/* ── Protocolo RM-049 ── */
+.protocolo{margin:44px 0 8px;padding-top:30px;border-top:1px solid #E2E8EE;}
+.proto-flujo{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap;margin-top:16px;}
+.proto-step{flex:1 1 180px;min-width:150px;background:#FFFFFF;border:1px solid #E2E8EE;
+  border-radius:11px;padding:13px 15px;display:flex;flex-direction:column;gap:4px;}
+.proto-actor{font-family:var(--sans,sans-serif);font-weight:600;font-size:13px;color:#0A3D54;}
+.proto-do{font-family:var(--sans,sans-serif);font-size:12.5px;color:#5B6B78;line-height:1.4;}
+.proto-arrow{align-self:center;color:#1BA8C4;font-size:18px;font-weight:600;flex:0 0 auto;}
+.niveles{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+.nivel{flex:1 1 160px;min-width:150px;display:grid;grid-template-columns:auto 1fr;
+  grid-template-areas:'dot name' 'dot val' 'dot tr';column-gap:10px;align-items:center;
+  background:#FFFFFF;border:1px solid #E2E8EE;border-left:4px solid var(--nc,#5B6B78);
+  border-radius:10px;padding:11px 14px;}
+.nivel-dot{grid-area:dot;width:12px;height:12px;border-radius:50%;background:var(--nc,#5B6B78);align-self:center;}
+.nivel-name{grid-area:name;font-family:var(--sans,sans-serif);font-weight:600;font-size:13px;color:#0C1E2A;
+  display:flex;align-items:baseline;gap:7px;}
+.nivel-col{font-weight:500;font-size:11px;color:var(--nc,#5B6B78);text-transform:uppercase;letter-spacing:.05em;}
+.nivel-val{grid-area:val;font-size:13px;color:#0C1E2A;font-variant-numeric:tabular-nums;}
+.nivel-tr{grid-area:tr;font-family:var(--sans,sans-serif);font-size:11px;color:#7A8894;}
+@media (max-width:720px){.res-grid{grid-template-columns:repeat(2,1fr);}
+  .proto-arrow{display:none;}}
+"""
+
+
 # ── Ensamblado del HTML final ─────────────────────────────────────────────────
 def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
-              recorrido_div) -> str:
+              recorrido_div, resultados_html, protocolo_html) -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -2112,7 +2244,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     </div>
     <div class="status-pill" role="status" aria-label="Umbral de alerta">
       <span class="status-dot" aria-hidden="true"></span>
-      <span class="status-txt">Umbral Q90</span>
+      <span class="status-txt">Vigilancia Q90</span>
       <span class="status-num">{UMBRAL_Q90} m³/s</span>
     </div>
   </div>
@@ -2146,6 +2278,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     </div>
 
     <div class="tab-body">
+      {resultados_html}
       <section class="reveal" aria-label="Indicadores resumen">
         <p class="eyebrow">Cifras clave · periodo de prueba 2024–2025</p>
         {kpi_html}
@@ -2170,13 +2303,15 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         </aside>
       </section>
 
+      {protocolo_html}
+
       <section class="thesis reveal">
         <p class="eyebrow">La tesis</p>
         <p class="thesis-body">A un día de horizonte, la <b>persistencia</b> del
         caudal fija un techo de exactitud difícil de superar; el modelo propuesto
         lo iguala y mejora la calidad probabilística. El valor real aparece a
         <b>varios días</b>, donde los forzantes meteorológicos permiten sostener la
-        habilidad y anticipar crecidas —el margen que da la respuesta hidrológica
+        habilidad y sustentar el aviso de crecida —el margen que da la respuesta hidrológica
         de la cuenca, de unos cuatro días entre lluvia y caudal.</p>
       </section>
 
@@ -2190,7 +2325,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     <div class="tab-body tab-body-story">
       <header class="tab-head reveal">
         <p class="eyebrow eyebrow-cyan">Recorrido · seguridad hídrica</p>
-        <h2 class="h-serif">De la cabecera al valle: anticipar el agua en la
+        <h2 class="h-serif">De la cabecera al valle: pronóstico y alerta temprana en la
           cuenca Chancay–Huaral</h2>
         <p class="prose prose-wide">Desplácese para recorrer la historia: a la
         izquierda avanza el relato; a la derecha, un visual que cambia con cada
@@ -2227,7 +2362,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           más marcado del periodo de prueba. Se superponen el caudal observado y la
           mediana de cada modelo para comparar quién sigue el pico.</p>
           <p class="prose">Alterne entre 1 y 7 días con los botones: a un día el
-          seguimiento es estrecho; a siete, la anticipación depende de la lluvia
+          seguimiento es estrecho; a siete, la ventana depende de la lluvia
           pronosticada y las trazas se separan del observado.</p>
           <p class="nota">Línea gruesa (agua): modelo propuesto RA-TFT; las demás,
           de referencia. Punteada roja: umbral Q90.</p>
@@ -2278,7 +2413,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           <h3 class="conc-h conc-warn">Limitaciones</h3>
           <ul class="conc-list">
             <li>La alerta de crecidas a más de 2 días depende de la lluvia
-            pronosticada; sin ella, la anticipación fiable es limitada.</li>
+            pronosticada; sin ella, la ventana fiable es limitada.</li>
             <li>La serie 2025 presenta amplios vacíos de aforo, que reducen los
             eventos disponibles para verificar la detección de crecidas.</li>
             <li>La evaluación cubre un año de prueba independiente; conviene ampliar
@@ -2430,7 +2565,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     <div class="foot-col foot-col-about">
       <h4 class="foot-h">Sobre el proyecto</h4>
       <p class="foot-p">HidroAlerta Chancay–Huaral integra modelos de aprendizaje
-      automático con hidrología de la cuenca para anticipar crecidas y apoyar la
+      automático con hidrología de la cuenca para pronosticar crecidas y apoyar la
       gestión del riesgo. Presentado al <b>Concurso ANA 2026</b>.</p>
       {herramientas_html}
     </div>
@@ -3585,7 +3720,7 @@ JS_FORECAST = """
         line:{color:CFG.col_crit, width:1.6, dash:'dot'}, layer:'above' }]),
       annotations:[{ xref:'paper', yref:'y', x:0.01, y:CFG.umbral, yanchor:'bottom',
         xanchor:'left', showarrow:false,
-        text:'Umbral de alerta Q90 = '+CFG.umbral.toFixed(2)+' m³/s',
+        text:'Vigilancia Q90 = '+CFG.umbral.toFixed(2)+' m³/s',
         font:{color:CFG.col_crit, size:12, family:FM} }]
     };
 
@@ -4757,7 +4892,7 @@ def main():
     serie_div = bloque_serie_interactiva(cfg_fcast)
     anim_div = construir_animacion(metr)
     tabla_html = tabla_metricas_html(metr)
-    kpi_html = kpi_cards(serie)
+    kpi_html = kpi_cards(serie, metr)
     mensual_div = construir_mensual(mens)
     evento_div = construir_evento(fcast)
     enso_div = construir_enso(enso)
@@ -4780,15 +4915,19 @@ def main():
         "rios":      json.loads((DATA / "rios.geojson").read_text(encoding="utf-8")),
         "subs":      json.loads((DATA / "sm_subcuencas.geojson").read_text(encoding="utf-8")),
         "puntos":    json.loads((DATA / "puntos.geojson").read_text(encoding="utf-8")),
+        "niveles":   [{"n": n, "c": c, "u": u, "hex": hx} for n, c, u, _t, hx in NIVELES_ALERTA],
+        "q90":       UMBRAL_Q90,
     }
     recorrido_div = SM.recorrido_html(
         meta_story, story_leaderboard_div, story_forecast_div,
         json.dumps(sm_data, ensure_ascii=False, separators=(",", ":")))
+    resultados_html = banda_resultados(metr)
+    protocolo_html = bloque_protocolo()
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
-                       recorrido_div)
+                       recorrido_div, resultados_html, protocolo_html)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
@@ -4804,6 +4943,7 @@ def main():
 {SM.CDN_HEAD}
 <style>{estilos()}</style>
 <style>{SM.CSS}</style>
+<style>{CSS_RESULTADOS}</style>
 </head>
 <body>
 {cuerpo}
