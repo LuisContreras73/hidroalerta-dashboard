@@ -997,23 +997,30 @@ def construir_enso_r2(enso: pd.DataFrame, extra: dict) -> str:
 
 
 # ── 09c · Representación / embeddings (no supervisado, model-agnóstico) ─────────
-# Orden de métodos en el selector. Las claves de la silueta pueden venir con
-# flecha ASCII ("DTW->MDS"); se normalizan a la etiqueta con flecha unicode.
-EMB_METODOS = ["PCA", "Isomap", "UMAP", "DTW→MDS"]
+# Orden de métodos en el CARRUSEL coverflow (8 métodos). Las claves de la silueta
+# pueden venir con flecha ASCII ("DTW->MDS"); se normalizan a la etiqueta con
+# flecha unicode. Orden pensado como recorrido: lineales → no lineales →
+# aprendidos por forma temporal, cerrando con el de mejor silueta.
+EMB_METODOS = ["PCA", "Features→PCA", "t-SNE", "UMAP", "Isomap", "LLE",
+               "TS2Vec", "DTW→MDS"]
+# Slug ASCII por método → id de div y clave de etiqueta (sin caracteres
+# problemáticos). Debe cubrir los 8 métodos y coincidir con el JS (SLUG).
+EMB_SLUG = {
+    "PCA": "pca", "Features→PCA": "featpca", "t-SNE": "tsne", "UMAP": "umap",
+    "Isomap": "isomap", "LLE": "lle", "TS2Vec": "ts2vec", "DTW→MDS": "dtw",
+}
 
 
 def embeddings_datos(coords: pd.DataFrame, sil: dict) -> str:
-    """Empaqueta las proyecciones por método para los small-multiples 2×2.
+    """Empaqueta las proyecciones de los 8 métodos para el carrusel coverflow 3D.
 
     Por método emite arrays PLANOS y paralelos (x, y, q, fecha, regimen,
     temporada) para que el JS construya cualquiera de las tres coloraciones
     (magnitud del caudal, crecida vs base, temporada) sobre el MISMO scatter.
-    La `fecha` es la llave del HOVER SINCRONIZADO: al pasar el cursor por un
-    punto en un panel se resalta el mismo punto (misma fecha) en los demás.
-    PCA/Isomap/UMAP comparten fechas; DTW→MDS es un subconjunto propio, por lo
-    que el resalte solo aparece donde esa fecha existe. Incluye la silueta
-    (crecida/base) por método. Análisis no supervisado (independiente del
-    modelo)."""
+    Cada tarjeta del coverflow dibuja un método; la CENTRAL es interactiva
+    (hover con fecha/q/régimen/temporada). Ya NO hay hover sincronizado entre
+    tarjetas. Incluye la silueta (crecida/base) por método (embeddings_sil.json).
+    Análisis no supervisado (independiente del modelo)."""
     def sil_de(metodo: str):
         # Tolera claves con flecha ASCII o unicode.
         for k in (metodo, metodo.replace("→", "->"), metodo.replace("->", "→")):
@@ -1065,17 +1072,19 @@ def embeddings_datos(coords: pd.DataFrame, sil: dict) -> str:
 
 
 def bloque_embeddings(cfg_json: str) -> str:
-    """Small-multiples 2×2 sincronizados + conmutador único de 3 coloraciones.
+    """Carrusel COVERFLOW 3D de los 8 métodos + conmutador de 3 coloraciones.
 
-    Los cuatro métodos de proyección (PCA, Isomap, UMAP, DTW→MDS) se muestran a
-    la vez en una rejilla 2×2 de mini-scatters Plotly (1 columna en móvil). Un
-    único conmutador (3 botones toggle) recolorea los cuatro paneles a la vez
-    —magnitud del caudal, crecida vs base (Q90) o temporada—. El HOVER está
-    SINCRONIZADO: al pasar el cursor por un punto en cualquier panel se resalta
-    el mismo punto (misma fecha) en los demás. Model-agnóstico (no supervisado).
+    Una fila de tarjetas (una por método) con perspectiva 3D: la tarjeta CENTRAL
+    está al frente, plana y grande (scatter Plotly interactivo, sin transform
+    para que el hover funcione); las laterales aparecen rotadas en Y (rotateY),
+    reducidas y atenuadas, dando profundidad. Navegación: flechas prev/next +
+    puntos + teclado (←/→); transición 3D ~450ms. Un único conmutador (3 botones
+    toggle) recolorea la tarjeta activa —magnitud del caudal, crecida vs base
+    (Q90) o temporada—. Model-agnóstico (no supervisado). Hover con fecha, q,
+    régimen y temporada (SIN sincronización entre tarjetas).
 
-    Los divs de los paneles (uno por método) se crean vacíos; el JS
-    (JS_EMBED) dibuja cada scatter y cablea el hover cruzado."""
+    Los divs de las tarjetas (uno por método) se crean vacíos; el JS (JS_EMBED)
+    dibuja el scatter de la central (y vecinas) y cablea la navegación."""
     # Conmutador de coloración (3 opciones tipo segmented control).
     coloraciones = [
         ("q", "Magnitud del caudal"),
@@ -1090,44 +1099,79 @@ def bloque_embeddings(cfg_json: str) -> str:
         f" data-color='{cid}'>{lab}</button>"
         for i, (cid, lab) in enumerate(coloraciones))
 
-    # Un panel por método: título (nombre + silueta) + div del mini-scatter.
-    # El slug ASCII evita caracteres problemáticos en el id del div.
-    slug = {"PCA": "pca", "Isomap": "isomap", "UMAP": "umap", "DTW→MDS": "dtw"}
-    paneles = "".join(
-        f"""      <figure class="emb-panel" data-metodo="{m}">
-        <figcaption class="emb-panel-head">
-          <span class="emb-panel-name">{m}</span>
-          <span class="emb-panel-sil" id="emb-sil-{slug[m]}">silueta —</span>
-        </figcaption>
-        <div class="emb-panel-plot" id="grafico-embeddings-{slug[m]}"></div>
-      </figure>
+    # Una tarjeta por método: título (nombre + silueta) + div del scatter.
+    # El slug ASCII (EMB_SLUG) evita caracteres problemáticos en el id del div.
+    # data-idx da el orden; el JS decide cuál es central y aplica los transforms
+    # 3D a las laterales. La central NO lleva transform (plana e interactiva).
+    tarjetas = "".join(
+        f"""        <figure class="emb-card" data-metodo="{m}" data-idx="{i}"
+                 aria-label="Método {m}">
+          <figcaption class="emb-card-head">
+            <span class="emb-card-name">{m}</span>
+            <span class="emb-card-sil" id="emb-sil-{EMB_SLUG[m]}">silueta —</span>
+          </figcaption>
+          <div class="emb-card-plot" id="grafico-embeddings-{EMB_SLUG[m]}"></div>
+        </figure>
 """
-        for m in EMB_METODOS)
+        for i, m in enumerate(EMB_METODOS))
+
+    # Puntos de navegación (uno por método), el primero activo.
+    puntos = "".join(
+        f"<button type='button' class='emb-dot{' is-active' if i == 0 else ''}'"
+        f" data-goto='{i}' aria-label='Ir al método {m}'"
+        f"{' aria-current=\"true\"' if i == 0 else ''}></button>"
+        for i, m in enumerate(EMB_METODOS))
+
+    # Flecha SVG monocroma (hereda color por currentColor).
+    def _flecha(dir_):
+        d = "M15 5l-7 7 7 7" if dir_ == "prev" else "M9 5l7 7-7 7"
+        return (
+            "<svg viewBox='0 0 24 24' width='22' height='22' aria-hidden='true' "
+            "focusable='false' fill='none' stroke='currentColor' "
+            f"stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'>"
+            f"<path d='{d}'/></svg>")
 
     return f"""
     <div class="emb" aria-label="Métodos de representación (embeddings)">
       <div class="emb-color" role="group"
-           aria-label="Esquema de coloración de los cuatro paneles">
+           aria-label="Esquema de coloración del embedding">
         <span class="emb-color-lab">Colorear por</span>
         {botones_col}
       </div>
 
-      <div class="emb-grid" role="group"
-           aria-label="Cuatro métodos de proyección (rejilla 2×2)">
-{paneles}      </div>
+      <div class="emb-cf" role="group" tabindex="0"
+           aria-roledescription="carrusel" aria-label="Carrusel de 8 métodos de
+           proyección; usa las flechas del teclado para cambiar de método">
+        <button type="button" class="emb-nav emb-prev"
+                aria-label="Método anterior">{_flecha("prev")}</button>
+        <div class="emb-stage">
+{tarjetas}        </div>
+        <button type="button" class="emb-nav emb-next"
+                aria-label="Método siguiente">{_flecha("next")}</button>
+      </div>
+
+      <div class="emb-status" aria-live="polite">
+        <span class="emb-pos"><span id="emb-pos-i">1</span> / {len(EMB_METODOS)}</span>
+        <span class="emb-pos-sep" aria-hidden="true">·</span>
+        <span id="emb-pos-name" class="emb-pos-name">{EMB_METODOS[0]}</span>
+      </div>
+
+      <div class="emb-dots" role="group" aria-label="Ir a un método concreto">
+        {puntos}
+      </div>
     </div>
     <p class="nota">Cada punto es una ventana temporal del caudal proyectada a 2D;
     los ejes no tienen unidades físicas (son coordenadas de la proyección). El
-    objetivo del embedding es ver cómo se <b>agrupan</b> los datos: comparar los
-    <b>cuatro métodos</b> y las <b>tres coloraciones</b> —magnitud del caudal,
-    crecida vs base (Q90) y temporada— ayuda a juzgar qué estructura capta cada
-    uno. Al pasar el cursor por un punto se <b>resalta el mismo instante</b>
-    (misma fecha) en los demás paneles. La <b>silueta</b> mide cuán bien se
-    separan crecida y base (mayor = mejor). Al ser un análisis <b>no
-    supervisado</b> (sin usar el modelo ni el umbral), la estructura crecida/base
-    emerge como propiedad <b>intrínseca de los datos</b>: los métodos no lineales
-    (Isomap) y basados en la forma temporal (DTW→MDS) la separan mejor que los
-    lineales (PCA).</p>
+    objetivo del embedding es ver cómo se <b>agrupan</b> los datos: recorrer los
+    <b>ocho métodos</b> (con las flechas o los puntos) y las <b>tres
+    coloraciones</b> —magnitud del caudal, crecida vs base (Q90) y temporada—
+    ayuda a juzgar qué estructura de régimen capta cada uno. La tarjeta central
+    es interactiva (pasa el cursor para ver fecha, caudal, régimen y temporada).
+    La <b>silueta</b> mide cuán bien se separan crecida y base (mayor = mejor).
+    Al ser un análisis <b>no supervisado</b> (sin usar el modelo ni el umbral),
+    la estructura crecida/base emerge como propiedad <b>intrínseca de los
+    datos</b>: los métodos no lineales (Isomap) y basados en la forma temporal
+    (DTW→MDS) la separan mejor que los lineales (PCA).</p>
     <script id="emb-data" type="application/json">{cfg_json}</script>"""
 
 
@@ -2192,9 +2236,12 @@ main {{ display:block; }}
   padding:14px 12px 8px; max-width:100%; }}
 #grafico-serie.fc-plot {{ background:var(--surf); border:1px solid var(--border);
   border-radius:var(--radius); box-shadow:var(--shadow-sm); padding:6px 8px; }}
-#grafico-embeddings.emb-plot {{ background:var(--surf);
-  border:1px solid var(--border); border-radius:var(--radius);
-  box-shadow:var(--shadow-sm); padding:6px 8px; }}
+/* El scatter va DENTRO de su tarjeta del coverflow (que ya aporta el marco).
+   Plotly añade la clase .js-plotly-plot al PROPIO div .emb-card-plot, así que
+   se anula el borde/sombra/relleno genéricos (misma especificidad, va después)
+   para que el gráfico quede a ras dentro de la tarjeta. */
+.emb-card-plot.js-plotly-plot {{ background:transparent; border:0;
+  border-radius:0; box-shadow:none; padding:0; }}
 
 /* ── Tabla de métricas (editorial) ────────────────────────────────── */
 .tabla-scroll {{ overflow-x:auto; border:1px solid var(--border);
@@ -2456,9 +2503,9 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .callout-body {{ font-size:14px; color:#33424E; line-height:1.6; }}
 .callout-body b {{ color:var(--ink); font-weight:600; }}
 
-/* ── Representación / embeddings (small-multiples 2×2 + 3 coloraciones) ── */
+/* ── Representación / embeddings (CARRUSEL coverflow 3D + 3 coloraciones) ── */
 /* Conmutador de coloración único (segmented control de 3 opciones) que
-   recolorea los CUATRO paneles a la vez. */
+   recolorea la tarjeta activa (y vecinas dibujadas). */
 .emb-color {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px;
   margin-bottom:16px; }}
 .emb-color-lab {{ font-size:11px; font-weight:600; text-transform:uppercase;
@@ -2473,21 +2520,94 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   border-color:var(--accent); }}
 .emb-cbtn:focus-visible {{ outline:none;
   box-shadow:0 0 0 3px rgba(11,110,140,.20); }}
-/* Rejilla 2×2 de mini-scatters (1 columna en móvil, ver responsive). */
-.emb-grid {{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr));
-  gap:clamp(12px,1.6vw,20px); }}
-.emb-panel {{ margin:0; min-width:0; background:var(--surf);
-  border:1px solid var(--border); border-radius:var(--radius);
-  box-shadow:var(--shadow-sm); padding:12px 12px 8px;
-  display:flex; flex-direction:column; }}
-.emb-panel-head {{ display:flex; align-items:baseline; justify-content:space-between;
-  gap:10px; margin:0 2px 4px; }}
-.emb-panel-name {{ font-family:var(--serif); font-weight:600; font-size:1.02rem;
+
+/* Coverflow: escenario con perspectiva 3D. La fila de tarjetas comparte un
+   punto de fuga; el JS posiciona cada tarjeta (translateX + rotateY + escala +
+   opacidad) según su distancia a la central. La CENTRAL no lleva transform
+   (plana, de frente) para que el scatter Plotly sea interactivo. */
+.emb-cf {{ position:relative; display:flex; align-items:center;
+  justify-content:center; gap:0;
+  padding:8px clamp(40px,6vw,72px); outline:none;
+  /* Recorta las tarjetas laterales que sobresalen del ancho del contenido →
+     nunca provocan scroll horizontal de la página (asoman sin desbordar). */
+  overflow:hidden; }}
+.emb-cf:focus-visible {{ box-shadow:inset 0 0 0 2px rgba(11,110,140,.30);
+  border-radius:var(--radius); }}
+/* Escenario 3D: la perspectiva da profundidad a las tarjetas laterales. */
+.emb-stage {{ position:relative; flex:1 1 auto; min-width:0;
+  height:clamp(360px,46vw,440px);
+  perspective:1500px; perspective-origin:50% 45%;
+  transform-style:preserve-3d; }}
+/* Tarjeta: absolutamente posicionada y centrada; el JS aplica el transform 3D.
+   Ancho acotado para que la central "grande" no desborde y las laterales
+   asomen a los costados. will-change/backface para una animación fluida. */
+.emb-card {{ position:absolute; top:0; left:50%; margin:0;
+  width:min(560px, 82%); height:100%;
+  transform:translate(-50%,0);
+  background:var(--surf); border:1px solid var(--border);
+  border-radius:var(--radius); box-shadow:var(--shadow-sm);
+  padding:12px 14px 10px; display:flex; flex-direction:column;
+  transform-origin:center center; backface-visibility:hidden;
+  will-change:transform, opacity;
+  transition:transform .45s cubic-bezier(.22,.61,.36,1),
+    opacity .45s ease, box-shadow .45s ease, filter .45s ease; }}
+/* Central: al frente, nítida, sombra marcada y (crucial) SIN rotación → el
+   Plotly recibe eventos de puntero y el hover funciona. */
+.emb-card.is-center {{ z-index:5; opacity:1; filter:none;
+  box-shadow:0 18px 46px rgba(10,61,84,.20);
+  border-color:#CBD9E1; }}
+/* Laterales: atenuadas y no interactivas (el clic las trae al centro, no opera
+   el scatter). El transform 3D lo fija el JS por variables. */
+.emb-card.is-side {{ z-index:2; opacity:.62; filter:saturate(.72);
+  cursor:pointer; }}
+.emb-card.is-side .emb-card-plot {{ pointer-events:none; }}
+.emb-card.is-far {{ z-index:1; opacity:.28; filter:saturate(.55);
+  cursor:pointer; }}
+.emb-card.is-far .emb-card-plot {{ pointer-events:none; }}
+/* Tarjetas fuera del rango visible (más allá de las vecinas): ocultas. */
+.emb-card.is-hidden {{ opacity:0; pointer-events:none; z-index:0; }}
+.emb-card-head {{ display:flex; align-items:baseline;
+  justify-content:space-between; gap:10px; margin:0 2px 4px; }}
+.emb-card-name {{ font-family:var(--serif); font-weight:600; font-size:1.06rem;
   color:var(--deep); line-height:1.1; }}
-.emb-panel-sil {{ font-family:var(--mono); font-variant-numeric:tabular-nums;
+.emb-card-sil {{ font-family:var(--mono); font-variant-numeric:tabular-nums;
   font-size:11px; font-weight:500; color:var(--muted); letter-spacing:.01em;
   white-space:nowrap; }}
-.emb-panel-plot {{ width:100%; min-height:300px; }}
+.emb-card-plot {{ width:100%; flex:1 1 auto; min-height:0; }}
+
+/* Flechas de navegación (prev/next). */
+.emb-nav {{ flex:none; z-index:8; appearance:none; cursor:pointer;
+  width:42px; height:42px; border-radius:999px;
+  display:inline-flex; align-items:center; justify-content:center;
+  color:var(--deep); background:var(--surf);
+  border:1.5px solid var(--border); box-shadow:var(--shadow-sm);
+  transition:color .16s ease, border-color .16s ease, background .16s ease,
+    transform .16s ease; }}
+.emb-nav:hover {{ color:#fff; background:var(--accent);
+  border-color:var(--accent); }}
+.emb-nav:focus-visible {{ outline:none;
+  box-shadow:0 0 0 3px rgba(11,110,140,.22); }}
+.emb-prev {{ margin-right:-8px; }}
+.emb-next {{ margin-left:-8px; }}
+
+/* Lectura de posición (N / total · nombre). */
+.emb-status {{ display:flex; align-items:baseline; justify-content:center;
+  gap:8px; margin-top:12px; font-family:var(--mono);
+  font-variant-numeric:tabular-nums; font-size:12.5px; color:var(--muted); }}
+.emb-pos-name {{ font-family:var(--serif); font-size:14px; font-weight:600;
+  color:var(--deep); }}
+
+/* Puntos de navegación. */
+.emb-dots {{ display:flex; flex-wrap:wrap; align-items:center;
+  justify-content:center; gap:9px; margin-top:12px; }}
+.emb-dot {{ appearance:none; cursor:pointer; width:9px; height:9px; padding:0;
+  border-radius:999px; border:1.5px solid #B4C4CE; background:transparent;
+  transition:background .16s ease, border-color .16s ease, transform .16s ease; }}
+.emb-dot:hover {{ border-color:var(--accent); }}
+.emb-dot.is-active {{ background:var(--accent); border-color:var(--accent);
+  transform:scale(1.15); }}
+.emb-dot:focus-visible {{ outline:none;
+  box-shadow:0 0 0 3px rgba(11,110,140,.22); }}
 
 /* ── Movimiento con propósito ─────────────────────────────────────── */
 /* Solo se oculta si hay JS (clase js-on en <html>); sin JS todo es visible. */
@@ -2509,6 +2629,11 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   .tab::after {{ transition:none; }}
   /* Sin desplazamientos de elevación en hover (equipo/íconos/contadores). */
   .eq-card:hover, .eq-ico:hover {{ transform:none; }}
+  /* Coverflow: sin rotación 3D ni transiciones bruscas. El JS aplaca los giros
+     (fija rotateY=0 y perspectiva plana); aquí quitamos también las
+     transiciones. Las laterales se atenúan pero no giran → navegación simple. */
+  .emb-stage {{ perspective:none; }}
+  .emb-card {{ transition:opacity .2s ease !important; }}
 }}
 
 /* ── Responsive ───────────────────────────────────────────────────── */
@@ -2544,8 +2669,12 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   .fc-readout {{ margin-left:0; text-align:left; flex:1 1 100%; }}
   .mq-logo {{ height:32px; }}
   .mq-item {{ margin:0 20px; }}
-  /* Small-multiples de embeddings: una sola columna en móvil. */
-  .emb-grid {{ grid-template-columns:1fr; }}
+  /* Coverflow en móvil: menos aire lateral, tarjeta central casi a todo el
+     ancho (las vecinas apenas asoman) y algo más baja. */
+  .emb-cf {{ padding:6px clamp(30px,9vw,44px); }}
+  .emb-stage {{ height:clamp(320px,84vw,380px); perspective:1100px; }}
+  .emb-card {{ width:min(440px, 90%); padding:12px 12px 10px; }}
+  .emb-nav {{ width:38px; height:38px; }}
 }}
 /* Tarjeta de equipo en móvil: apila (foto centrada arriba, luego nombre/rol/bio,
    y finalmente chips + contactos centrados). En ningún ancho el texto se monta
@@ -2889,19 +3018,20 @@ JS_FORECAST = """
 """
 
 
-# ── Script de los embeddings: small-multiples 2×2 sincronizados + 3 coloraciones ─
-# Análisis no supervisado (model-agnóstico). Los CUATRO métodos (PCA, Isomap,
-# UMAP, DTW→MDS) se dibujan a la vez, uno por div, en una rejilla 2×2. Un único
-# conmutador cambia la COLORACIÓN (magnitud del caudal · crecida vs base ·
-# temporada) y recolorea los cuatro paneles con Plotly.react. HOVER SINCRONIZADO:
-# al pasar el cursor por un punto (plotly_hover) se lee su `fecha` (customdata) y
-# se resalta el mismo punto (misma fecha) en TODOS los paneles mediante una traza
-# de resalte (un aro) que se actualiza con Plotly.restyle; plotly_unhover la
-# limpia. PCA/Isomap/UMAP comparten fechas; DTW→MDS es un subconjunto, por lo que
-# el aro solo aparece donde esa fecha existe. La traza de resalte NO emite eventos
-# de hover, así que no hay bucle de realimentación. Los divs pasan a ser
-# .js-plotly-plot, de modo que JS_TABS ya los redimensiona al activar la pestaña
-# "Datos & representación"; también se redimensionan al cambiar de coloración.
+# ── Script de los embeddings: CARRUSEL coverflow 3D + 3 coloraciones ───────────
+# Análisis no supervisado (model-agnóstico). Los OCHO métodos viven en una fila
+# de tarjetas con perspectiva 3D (coverflow). La tarjeta CENTRAL está al frente,
+# plana (SIN transform) y grande → su scatter Plotly es interactivo y el hover
+# funciona; las laterales se posicionan por JS con translateX + rotateY + escala
+# + opacidad (profundidad). Navegación: flechas prev/next, puntos y teclado
+# (←/→). Por rendimiento solo se DIBUJA el Plotly de la tarjeta central y sus
+# vecinas inmediatas (las demás son placeholders hasta acercarse). Al centrar
+# una tarjeta se llama Plotly.Plots.resize (doble requestAnimationFrame) para
+# que ocupe el ancho real. El conmutador de coloración (magnitud del caudal ·
+# crecida vs base · temporada) recolorea las tarjetas dibujadas con Plotly.react.
+# Hover con fecha/q/régimen/temporada, POR TARJETA (sin sincronización). Bajo
+# prefers-reduced-motion se anula la rotación 3D (rotateY=0) y las tarjetas
+# laterales solo se atenúan; la navegación sigue funcionando.
 JS_EMBED = """
 (function(){
   function run(){
@@ -2912,7 +3042,6 @@ JS_EMBED = """
 
     var orden = CFG.orden || [];
     if (!orden.length) return;
-    var cont = dataEl.parentNode;   // contenedor .tabpanel > .tab-body > <div reveal>
     var cbtns = Array.prototype.slice.call(
       document.querySelectorAll('.emb .emb-cbtn'));
     var reduce = window.matchMedia &&
@@ -2921,10 +3050,11 @@ JS_EMBED = """
     var FM = 'IBM Plex Mono, SFMono-Regular, Consolas, monospace';
 
     var colorMode = 'q';         // 'q' | 'reg' | 'temp'
-    var HL_COLOR = CFG.col_ink || '#0C1E2A';
 
     // Slug ASCII por método (coincide con los id de los divs y las etiquetas).
-    var SLUG = { 'PCA':'pca', 'Isomap':'isomap', 'UMAP':'umap', 'DTW→MDS':'dtw' };
+    var SLUG = { 'PCA':'pca', 'Features→PCA':'featpca', 't-SNE':'tsne',
+      'UMAP':'umap', 'Isomap':'isomap', 'LLE':'lle', 'TS2Vec':'ts2vec',
+      'DTW→MDS':'dtw' };
 
     function toRGBA(hex, a){
       var h = hex.replace('#',''); if (h.length===3){ h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; }
@@ -2941,41 +3071,29 @@ JS_EMBED = """
     }
 
     // Divide los índices de un método según una clave ('regimen'/'temporada').
-    // Emite arrays paralelos, incluida la `fecha` como customdata para el hover.
     function split(d, campo, valor){
-      var xs=[], ys=[], tx=[], cd=[];
+      var xs=[], ys=[], tx=[];
       for (var i=0;i<d.x.length;i++){
         if (d[campo][i] === valor){ xs.push(d.x[i]); ys.push(d.y[i]);
-          tx.push(hoverText(d,i)); cd.push(d.fecha[i]); }
+          tx.push(hoverText(d,i)); }
       }
-      return { x:xs, y:ys, text:tx, customdata:cd };
+      return { x:xs, y:ys, text:tx };
     }
 
-    // Traza de resalte (aro) que se sobrepone; arranca vacía. Es SIEMPRE la
-    // última traza del panel, para actualizarla por índice con Plotly.restyle.
-    function highlightTrace(){
-      return { x:[], y:[], mode:'markers', type:'scatter',
-        name:'resalte', hoverinfo:'skip', showlegend:false,
-        marker:{ color:'rgba(0,0,0,0)', size:15,
-          line:{ width:2.4, color:HL_COLOR } } };
-    }
-
-    // Trazas de datos para el método `d` según la coloración activa
-    // (sin la traza de resalte, que se añade aparte).
-    function dataTraces(d){
+    // Trazas para el método `d` según la coloración activa.
+    function tracesFor(d){
       if (colorMode === 'q'){
-        // (a) Magnitud del caudal: un solo scatter con color continuo + colorbar.
+        // (a) Magnitud del caudal: un scatter con color continuo + colorbar.
         var tx = [];
         for (var i=0;i<d.x.length;i++){ tx.push(hoverText(d,i)); }
         return [{ x:d.x, y:d.y, mode:'markers', type:'scatter',
-          name:'Caudal', text:tx, customdata:d.fecha, hoverinfo:'text',
-          showlegend:false,
+          name:'Caudal', text:tx, hoverinfo:'text', showlegend:false,
           marker:{ color:d.q, colorscale:SCALE_Q, cmin:CFG.q_min, cmax:CFG.q_max,
-            size:5.5, opacity:0.82, line:{width:0},
+            size:6, opacity:0.82, line:{width:0},
             colorbar:{ title:{text:'m³/s', side:'right',
                 font:{family:FS, size:10, color:CFG.col_muted}},
-              thickness:9, len:0.82, x:1.02, xpad:2,
-              tickfont:{family:FM, size:9, color:CFG.col_muted},
+              thickness:10, len:0.82, x:1.02, xpad:2,
+              tickfont:{family:FM, size:9.5, color:CFG.col_muted},
               outlinewidth:0 } } }];
       }
       if (colorMode === 'reg'){
@@ -2983,11 +3101,11 @@ JS_EMBED = """
         var b = split(d,'regimen','base'), c = split(d,'regimen','crecida');
         return [
           { x:b.x, y:b.y, mode:'markers', type:'scatter', name:'Base',
-            text:b.text, customdata:b.customdata, hoverinfo:'text',
-            marker:{ color:toRGBA(CFG.col_base,0.42), size:5, line:{width:0} } },
+            text:b.text, hoverinfo:'text',
+            marker:{ color:toRGBA(CFG.col_base,0.45), size:5.5, line:{width:0} } },
           { x:c.x, y:c.y, mode:'markers', type:'scatter', name:'Crecida',
-            text:c.text, customdata:c.customdata, hoverinfo:'text',
-            marker:{ color:toRGBA(CFG.col_crecida,0.82), size:7,
+            text:c.text, hoverinfo:'text',
+            marker:{ color:toRGBA(CFG.col_crecida,0.85), size:7.5,
               line:{width:0.5, color:'#fff'} } }
         ];
       }
@@ -2995,22 +3113,19 @@ JS_EMBED = """
       var h = split(d,'temporada','humeda'), s = split(d,'temporada','seca');
       return [
         { x:s.x, y:s.y, mode:'markers', type:'scatter', name:'Seca',
-          text:s.text, customdata:s.customdata, hoverinfo:'text',
-          marker:{ color:toRGBA(CFG.col_seca,0.62), size:5, line:{width:0} } },
+          text:s.text, hoverinfo:'text',
+          marker:{ color:toRGBA(CFG.col_seca,0.65), size:5.5, line:{width:0} } },
         { x:h.x, y:h.y, mode:'markers', type:'scatter', name:'Húmeda',
-          text:h.text, customdata:h.customdata, hoverinfo:'text',
-          marker:{ color:toRGBA(CFG.col_humeda,0.62), size:5, line:{width:0} } }
+          text:h.text, hoverinfo:'text',
+          marker:{ color:toRGBA(CFG.col_humeda,0.65), size:5.5, line:{width:0} } }
       ];
     }
-
-    function tracesFor(d){ return dataTraces(d).concat([highlightTrace()]); }
 
     function layoutFor(){
       var showleg = (colorMode !== 'q');
       return {
-        // Alto compacto: cuatro paneles a la vez en la rejilla 2×2.
-        height:300, hovermode:'closest',
-        margin:{l:36, r: (colorMode==='q'? 52 : 10), t: (showleg? 30 : 8), b:34},
+        autosize:true, hovermode:'closest',
+        margin:{l:40, r: (colorMode==='q'? 58 : 12), t: (showleg? 30 : 8), b:36},
         font:{family:FS, size:12, color:CFG.col_ink},
         paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
         showlegend:showleg,
@@ -3021,84 +3136,151 @@ JS_EMBED = """
         xaxis:{ title:{text:'Comp. 1 (sin unidades)',
             font:{family:FS, size:10.5, color:CFG.col_muted}},
           gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
-          tickfont:{family:FM, size:9, color:CFG.col_muted},
+          tickfont:{family:FM, size:9.5, color:CFG.col_muted},
           showticklabels:true },
         yaxis:{ title:{text:'Comp. 2 (sin unidades)',
             font:{family:FS, size:10.5, color:CFG.col_muted}},
           gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
-          tickfont:{family:FM, size:9, color:CFG.col_muted},
+          tickfont:{family:FM, size:9.5, color:CFG.col_muted},
           showticklabels:true, scaleanchor:'x', scaleratio:1 },
         modebar:{bgcolor:'rgba(0,0,0,0)', color:CFG.col_muted,
           activecolor:CFG.col_deep},
-        transition:{duration: reduce ? 0 : 260, easing:'cubic-in-out'}
+        transition:{duration: reduce ? 0 : 220, easing:'cubic-in-out'}
       };
     }
 
     var config = { displayModeBar:false, displaylogo:false, responsive:true };
 
-    // Estado por panel: div, datos, índice de fecha→fila, índice de traza de
-    // resalte y bandera de dibujado.
-    var paneles = [];   // [{ met, div, d, fIndex, hlIndex, drawn }]
-
+    // Estado por tarjeta: método, card DOM, div del plot, datos, dibujado.
+    var cards = [];   // [{ met, slug, card, div, d, drawn }]
     orden.forEach(function(met){
       var slug = SLUG[met];
       var div = document.getElementById('grafico-embeddings-' + slug);
+      var card = div ? div.closest('.emb-card') : null;
       var d = CFG.metodos[met];
-      if (!div || !d) return;
-      var fIndex = {};                 // fecha (str) -> índice de fila
-      for (var i=0;i<d.fecha.length;i++){ fIndex[d.fecha[i]] = i; }
-      paneles.push({ met:met, slug:slug, div:div, d:d, fIndex:fIndex,
-        hlIndex:0, drawn:false });
-      // Etiqueta de silueta del panel.
+      if (!div || !card || !d) return;
+      cards.push({ met:met, slug:slug, card:card, div:div, d:d, drawn:false });
       var silNode = document.getElementById('emb-sil-' + slug);
       if (silNode){ silNode.textContent = 'silueta ' +
         ((d.sil !== null && d.sil !== undefined) ? d.sil.toFixed(3) : '—'); }
     });
-    if (!paneles.length) return;
+    if (!cards.length) return;
 
-    // Actualiza el aro de resalte de un panel a la fila `row` (o lo limpia).
-    function setHighlight(p, row){
-      if (!p.drawn) return;
-      var x = [], y = [];
-      if (row !== null && row !== undefined && row >= 0){
-        x = [p.d.x[row]]; y = [p.d.y[row]];
-      }
-      try { Plotly.restyle(p.div, { x:[x], y:[y] }, [p.hlIndex]); } catch(e){}
-    }
+    var N = cards.length;
+    var current = 0;
 
-    // Resalta la misma `fecha` en todos los paneles (solo donde exista).
-    function highlightAll(fecha){
-      paneles.forEach(function(p){
-        var row = (fecha in p.fIndex) ? p.fIndex[fecha] : -1;
-        setHighlight(p, row);
-      });
-    }
-    function clearAll(){ paneles.forEach(function(p){ setHighlight(p, -1); }); }
+    var dots = Array.prototype.slice.call(
+      document.querySelectorAll('.emb .emb-dot'));
+    var posI = document.getElementById('emb-pos-i');
+    var posName = document.getElementById('emb-pos-name');
 
-    function wireHover(p){
-      p.div.on('plotly_hover', function(ev){
-        if (!ev || !ev.points || !ev.points.length) return;
-        var pt = ev.points[0];
-        // La fecha viaja como customdata en cada traza de datos; se ignora la
-        // traza de resalte (hoverinfo:skip, no dispara este evento).
-        var fecha = pt.customdata;
-        if (fecha === null || fecha === undefined) return;
-        highlightAll(String(fecha));
-      });
-      p.div.on('plotly_unhover', function(){ clearAll(); });
-    }
-
-    function drawPanel(p){
-      var traces = tracesFor(p.d);
-      p.hlIndex = traces.length - 1;   // la traza de resalte es la última
+    // Dibuja (o recolorea) el Plotly de una tarjeta. Solo se invoca para la
+    // central y sus vecinas → rendimiento (no se dibujan las 8 a la vez).
+    function drawCard(c){
+      if (!c) return;
+      var traces = tracesFor(c.d);
       var layout = layoutFor();
-      if (!p.drawn){
-        Plotly.newPlot(p.div, traces, layout, config);
-        p.drawn = true;
-        wireHover(p);
+      if (!c.drawn){
+        Plotly.newPlot(c.div, traces, layout, config);
+        c.drawn = true;
       } else {
-        Plotly.react(p.div, traces, layout, config);
+        Plotly.react(c.div, traces, layout, config);
       }
+    }
+    // Redimensiona el Plotly de una tarjeta tras un reflow (doble rAF): la
+    // central pasa de estar oculta/pequeña a su ancho real.
+    function resizeCard(c){
+      if (!c || !c.drawn || !Plotly.Plots) return;
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          try { Plotly.Plots.resize(c.div); } catch(e){}
+        });
+      });
+    }
+
+    // Posiciona cada tarjeta en el coverflow según su distancia (offset) a la
+    // central. La central: sin transform (plana, interactiva). Laterales:
+    // rotateY + translateX + escala + profundidad → asoman a los costados por
+    // detrás de la central. El desplazamiento horizontal se deriva del ANCHO
+    // real de la tarjeta (para que las vecinas sobresalgan siempre, sea cual
+    // sea el viewport). Bajo reduced-motion no hay rotación (ROT=0).
+    var ROT = reduce ? 0 : 34;   // grados de rotateY por nivel (0 si reduce)
+    var DEPTH = 130;             // px de retroceso (translateZ) por nivel
+    var SCALE_STEP = 0.15;       // reducción de escala por nivel
+    // Fracción del ancho de la tarjeta que se desplaza el 1er vecino (que
+    // asome ~la mitad exterior); el 2º se aleja algo menos por nivel.
+    var GAP_FRAC = 0.60;
+    function layoutCoverflow(){
+      // Ancho de referencia: el de la tarjeta central (todas comparten ancho).
+      var cw = cards[current].card.getBoundingClientRect().width || 520;
+      var GAP = cw * GAP_FRAC;   // px por nivel
+      cards.forEach(function(c, i){
+        var off = i - current;              // <0 izquierda, >0 derecha
+        var a = Math.abs(off);
+        c.card.classList.remove('is-center','is-side','is-far','is-hidden');
+        c.card.setAttribute('aria-hidden', a === 0 ? 'false' : 'true');
+        if (a === 0){
+          // CENTRAL: plana y de frente (sin rotateY) → Plotly interactivo.
+          c.card.style.transform = 'translate(-50%,0)';
+          c.card.style.zIndex = '5';
+          c.card.classList.add('is-center');
+        } else if (a <= 2){
+          var dir = off < 0 ? -1 : 1;
+          var scale = Math.max(0.6, 1 - a * SCALE_STEP);
+          // El 2º nivel se separa un poco más allá del 1º (no linealmente).
+          var tx = dir * GAP * (a === 1 ? 1 : 1.7);
+          var tz = -a * DEPTH;
+          var ry = -dir * ROT;               // gira hacia el centro
+          c.card.style.transform =
+            'translate(-50%,0) translateX(' + tx + 'px) ' +
+            'translateZ(' + tz + 'px) rotateY(' + ry + 'deg) scale(' + scale + ')';
+          c.card.style.zIndex = String(5 - a);
+          c.card.classList.add(a === 1 ? 'is-side' : 'is-far');
+        } else {
+          // Fuera de vista: oculta (no se dibuja su Plotly).
+          c.card.style.transform =
+            'translate(-50%,0) translateX(' + (off < 0 ? -1 : 1) *
+            (GAP * 1.7) + 'px) scale(0.5)';
+          c.card.classList.add('is-hidden');
+        }
+      });
+    }
+
+    function actualizarDots(){
+      dots.forEach(function(dot, i){
+        var on = (i === current);
+        dot.classList.toggle('is-active', on);
+        if (on){ dot.setAttribute('aria-current','true'); }
+        else { dot.removeAttribute('aria-current'); }
+      });
+      if (posI){ posI.textContent = String(current + 1); }
+      if (posName){ posName.textContent = cards[current].met; }
+    }
+
+    // Dibuja la central y sus vecinas inmediatas (ventana ±2) si aún no lo están.
+    function ensureDrawnAround(){
+      for (var i=0;i<N;i++){
+        if (Math.abs(i - current) <= 2 && !cards[i].drawn){ drawCard(cards[i]); }
+      }
+    }
+
+    function go(idx){
+      current = ((idx % N) + N) % N;   // envuelve (wrap-around)
+      layoutCoverflow();
+      actualizarDots();
+      ensureDrawnAround();
+      // La central puede haber cambiado de ancho: redimensiónala.
+      resizeCard(cards[current]);
+    }
+
+    // Recolorea todas las tarjetas ya dibujadas (la central y las visitadas).
+    function recolorDibujadas(){
+      cards.forEach(function(c){ if (c.drawn){ drawCard(c); } });
+      requestAnimationFrame(function(){
+        cards.forEach(function(c){
+          if (c.drawn){ try { Plotly.Plots.resize(c.div); } catch(e){} }
+        });
+      });
     }
 
     function actualizarBotones(){
@@ -3109,28 +3291,58 @@ JS_EMBED = """
       });
     }
 
-    function renderTodos(){
-      paneles.forEach(drawPanel);
-      actualizarBotones();
-      // Reajusta anchos (los divs pueden haberse dibujado ocultos o con el
-      // ancho anterior a la coloración).
-      requestAnimationFrame(function(){
-        paneles.forEach(function(p){
-          try { Plotly.Plots.resize(p.div); } catch(e){}
-        });
+    // ── Cableado de la navegación ──────────────────────────────────────────
+    var prevBtn = document.querySelector('.emb .emb-prev');
+    var nextBtn = document.querySelector('.emb .emb-next');
+    if (prevBtn){ prevBtn.addEventListener('click', function(){ go(current - 1); }); }
+    if (nextBtn){ nextBtn.addEventListener('click', function(){ go(current + 1); }); }
+    dots.forEach(function(dot){
+      dot.addEventListener('click', function(){
+        var i = parseInt(dot.getAttribute('data-goto'), 10);
+        if (!isNaN(i)){ go(i); }
+      });
+    });
+    // Clic en una tarjeta lateral → la trae al centro.
+    cards.forEach(function(c, i){
+      c.card.addEventListener('click', function(){
+        if (i !== current){ go(i); }
+      });
+    });
+    // Teclado (←/→) sobre el carrusel.
+    var cf = document.querySelector('.emb .emb-cf');
+    if (cf){
+      cf.addEventListener('keydown', function(e){
+        if (e.key === 'ArrowLeft'){ e.preventDefault(); go(current - 1); }
+        else if (e.key === 'ArrowRight'){ e.preventDefault(); go(current + 1); }
+        else if (e.key === 'Home'){ e.preventDefault(); go(0); }
+        else if (e.key === 'End'){ e.preventDefault(); go(N - 1); }
       });
     }
 
+    // Conmutador de coloración.
     cbtns.forEach(function(btn){
       btn.addEventListener('click', function(){
         var nuevo = btn.getAttribute('data-color') || 'q';
         if (nuevo === colorMode){ return; }
         colorMode = nuevo;
-        renderTodos();
+        actualizarBotones();
+        recolorDibujadas();
       });
     });
 
-    renderTodos();
+    // Estado inicial.
+    actualizarBotones();
+    go(0);
+
+    // Cuando se muestra la pestaña "Datos & representación", el panel deja de
+    // estar oculto: redibuja/redimensiona la central (los Plotly creados en un
+    // contenedor display:none nacen con ancho 0).
+    document.addEventListener('hidroalerta:tabshown', function(ev){
+      var panel = ev.detail && ev.detail.panel;
+      if (!panel || !panel.contains(cards[0].card)) return;
+      ensureDrawnAround();
+      cards.forEach(function(c){ if (c.drawn){ resizeCard(c); } });
+    });
   }
   if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', run);
