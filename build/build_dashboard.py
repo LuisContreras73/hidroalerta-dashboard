@@ -1463,10 +1463,382 @@ def franja_herramientas(imgs: dict) -> str:
         "</div>")
 
 
+# ══ STORYMAP «Recorrido» (scrollytelling) ═════════════════════════════════════
+# Nueva pestaña: narrativa de SEGURIDAD HÍDRICA de la cuenca Chancay–Huaral.
+# El texto avanza (columna narrativa de "pasos") mientras un panel PEGAJOSO
+# (sticky) cambia de visual por capítulo (globo 3D → mapa Leaflet → GIF → Plotly).
+# Un IntersectionObserver detecta el paso activo y reconfigura el sticky (JS_STORY).
+#
+# Datos servidos al JS (sin rutas privadas): límite de cuenca y subcuencas
+# (GeoJSON, coloreadas por elevación), estaciones (aforo/meteo) y los ajustes de
+# cámara (vista/zoom/capa resaltada) por capítulo. Las dos figuras Plotly del
+# recorrido (evento feb-2024 y leaderboard NSE) se generan aparte y se muestran
+# dentro del sticky en su capítulo.
+STORY_COORD_OUTLET = (-11.3701, -77.0282)   # estación Santo Domingo (aforo/outlet)
+STORY_COORD_CUENCA = (-11.35, -76.9)          # centro/foco de la cuenca (globo)
+
+
+def _elev_color(e: float) -> str:
+    """Rampa de elevación (misma paleta que el mapa Folium de Resumen)."""
+    if e < 1000:
+        return "#7FD3E3"
+    if e < 2500:
+        return "#3FA9C4"
+    if e < 3800:
+        return COL_ACCENT
+    return COL_DEEP
+
+
+def storymap_datos(meta, subs, lim, estaciones) -> str:
+    """Empaqueta a JSON todo lo que el mapa Leaflet del recorrido necesita.
+
+    Incluye: GeoJSON del límite y de las subcuencas (con color por elevación ya
+    resuelto en las propiedades), lista de estaciones (aforo/meteo con color), y
+    los parámetros de cámara por capítulo (centro, zoom, capa a resaltar)."""
+    # Subcuencas: se reexpone el GeoJSON tal cual + color/etiqueta por feature.
+    feats = []
+    for f in subs["features"]:
+        p = f["properties"]
+        feats.append({
+            "type": "Feature",
+            "geometry": f["geometry"],
+            "properties": {
+                "nombre": p["nombre"],
+                "elev_m": p["elev_m"],
+                "area_km2": p["area_km2"],
+                "outlet": bool(p["outlet"]),
+                "cx": p["cx"], "cy": p["cy"],
+                "color": _elev_color(p["elev_m"]),
+            },
+        })
+    subs_fc = {"type": "FeatureCollection", "features": feats}
+
+    ests = []
+    for _, r in estaciones.iterrows():
+        tipo = str(r["tipo"]).strip().lower()
+        ests.append({
+            "nombre": str(r["nombre"]), "codigo": str(r["codigo"]),
+            "lat": float(r["lat"]), "lon": float(r["lon"]),
+            "tipo": tipo, "desc": str(r["desc"]),
+            "color": COL_ACCENT if tipo == "aforo" else COL_WARN,
+        })
+
+    est = meta["estacion"]
+    cfg = {
+        "limite": lim,
+        "subcuencas": subs_fc,
+        "estaciones": ests,
+        "outlet": {"lat": STORY_COORD_OUTLET[0], "lon": STORY_COORD_OUTLET[1],
+                   "nombre": est["nombre"], "codigo": est["codigo"]},
+        "foco_cuenca": {"lat": STORY_COORD_CUENCA[0],
+                        "lon": STORY_COORD_CUENCA[1]},
+        "umbral": UMBRAL_Q90,
+        "area_km2": meta["cuenca_area_km2"],
+        "n_sub": meta["n_subcuencas"],
+        # Colores del proyecto para el JS (marcadores, resaltados).
+        "col_accent": COL_ACCENT, "col_deep": COL_DEEP, "col_cyan": COL_CYAN,
+        "col_crit": COL_CRIT, "col_warn": COL_WARN, "col_ink": COL_INK,
+        "col_muted": COL_MUTED, "col_border": COL_BORDER, "col_surf": COL_SURF,
+    }
+    return json.dumps(cfg, ensure_ascii=False)
+
+
+def construir_evento_recorrido(serie: pd.DataFrame) -> str:
+    """Hidrograma del evento (ene–mar 2024) para el capítulo «El evento».
+
+    Usa serie_diaria.csv: observado + mediana P50 + banda P10–P90 + umbral Q90.
+    Div propio (grafico-story-evento) para no colisionar con el de Pronóstico."""
+    ini, fin = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-03-31")
+    w = serie[(serie["date"] >= ini) & (serie["date"] <= fin)].sort_values("date")
+
+    fig = go.Figure()
+    # Banda P10–P90.
+    fig.add_trace(go.Scatter(
+        x=w["date"], y=w["p90"], mode="lines", line=dict(width=0),
+        hoverinfo="skip", showlegend=False, name="P90"))
+    fig.add_trace(go.Scatter(
+        x=w["date"], y=w["p10"], mode="lines", fill="tonexty",
+        fillcolor=COL_BAND, line=dict(width=0), name="Banda P10–P90",
+        hovertemplate="P10 %{y:.1f} · "))
+    # Mediana P50 (agua).
+    fig.add_trace(go.Scatter(
+        x=w["date"], y=w["p50"], mode="lines",
+        line=dict(color=COL_ACCENT, width=2.4), name="Pronóstico (P50)",
+        hovertemplate="P50 %{y:.1f} m³/s"))
+    # Observado (aforo).
+    obs = w.dropna(subset=["obs"])
+    fig.add_trace(go.Scatter(
+        x=obs["date"], y=obs["obs"], mode="markers",
+        marker=dict(color=COL_INK, size=5.5, line=dict(width=0)),
+        name="Caudal observado (aforo)", hovertemplate="Observado %{y:.1f} m³/s"))
+
+    fig.add_hline(
+        y=UMBRAL_Q90, line=dict(color=COL_CRIT, width=1.6, dash="dot"),
+        annotation_text=f"Umbral de alerta Q90 = {UMBRAL_Q90} m³/s",
+        annotation_position="top left",
+        annotation_font=dict(color=COL_CRIT, size=12, family=FONT_MONO))
+
+    fig.update_layout(**layout_base(
+        margin=dict(l=54, r=16, t=54, b=34), height=430,
+        yaxis=axis_y(title="Caudal (m³/s)", rangemode="tozero"),
+        xaxis=axis_x(title="")))
+
+    return fig.to_html(
+        include_plotlyjs=False, full_html=False, div_id="grafico-story-evento",
+        config={"displayModeBar": False, "responsive": True})
+
+
+def construir_leaderboard_recorrido(metr: pd.DataFrame) -> str:
+    """Habilidad (NSE) vs horizonte, una línea por modelo, para el capítulo «El
+    pronóstico». Deja ver que RA-TFT lidera a multi-día. Div propio."""
+    leads = sorted(metr["lead"].unique())
+    modelos = [m for m in ORDEN_MODELO if m in set(metr["model"])]
+    fig = go.Figure()
+    for mod in modelos:
+        sub = metr[metr["model"] == mod].set_index("lead")
+        ys = [float(sub.loc[ld, "NSE"]) if ld in sub.index else None
+              for ld in leads]
+        es_prop = (mod == "RA-TFT")
+        fig.add_trace(go.Scatter(
+            x=leads, y=ys, mode="lines+markers",
+            line=dict(color=COL_MODELO.get(mod, COL_ACCENT),
+                      width=3 if es_prop else 1.8,
+                      dash="solid" if es_prop else "dot"),
+            marker=dict(size=8 if es_prop else 6),
+            name=ETIQUETA_MODELO.get(mod, mod),
+            hovertemplate=f"{ETIQUETA_MODELO.get(mod, mod)} · "
+                          "horizonte %{x} d · NSE %{y:.3f}<extra></extra>"))
+    fig.add_hline(y=0, line=dict(color=COL_BORDER, width=1))
+    fig.update_layout(**layout_base(
+        height=430, margin=dict(l=54, r=16, t=30, b=44), hovermode="closest",
+        yaxis=axis_y(title="NSE (eficiencia Nash–Sutcliffe)", range=[0, 1.0]),
+        xaxis=axis_x(title="Horizonte de pronóstico (días)",
+                     tickmode="array", tickvals=leads),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left",
+                    x=0, font=dict(size=12, family=FONT_SANS, color=COL_MUTED))))
+    return fig.to_html(
+        include_plotlyjs=False, full_html=False,
+        div_id="grafico-story-leaderboard",
+        config={"displayModeBar": False, "responsive": True})
+
+
+# Capítulos del recorrido. Cada uno: (id, eyebrow, título, párrafos[], escena).
+# La "escena" indica al JS qué visual sticky mostrar y cómo configurarlo.
+#   globo            — Cap. 1: globo 3D girando hacia Perú → cuenca.
+#   mapa:<vista>     — Leaflet: 'cuenca' | 'outlet' | 'estaciones'.
+#   gif              — Cap. 4: los dos GIF de climatología.
+#   evento           — Cap. 6: hidrograma feb-2024.
+#   leaderboard      — Cap. 7: NSE vs horizonte.
+#   cierre           — Cap. 8: mapa general + mensaje de cierre (reusa Leaflet).
+def _story_capitulos(meta) -> list:
+    est = meta["estacion"]
+    area = meta["cuenca_area_km2"]
+    nsub = meta["n_subcuencas"]
+    return [
+        dict(id="intro", escena="globo", num="01",
+             eyebrow="Seguridad hídrica · Chancay–Huaral",
+             titulo="Anticipar el agua para proteger a quienes viven de ella",
+             parrafos=[
+                 "En la costa central del Perú, al norte de Lima, el río "
+                 "Chancay–Huaral sostiene a la provincia de Huaral: su población, "
+                 "sus ciudades y uno de los valles agrícolas más productivos del "
+                 "país. El agua que baja de los Andes es, a la vez, sustento y "
+                 "amenaza.",
+                 "Este recorrido cuenta cómo <b>pronosticar el caudal</b> —cuánta "
+                 "agua traerá el río— se convierte en una herramienta de "
+                 "<b>seguridad hídrica</b>: anticipar crecidas para proteger "
+                 "vidas y planificar el riego cuando el agua escasea.",
+             ]),
+        dict(id="cuenca", escena="mapa:cuenca", num="02",
+             eyebrow="La cuenca",
+             titulo="De la cabecera andina al valle costero",
+             parrafos=[
+                 f"La cuenca abarca cerca de <b>{area:,.0f} km²</b> y se organiza "
+                 f"en <b>{nsub} subcuencas</b>, coloreadas aquí por elevación: del "
+                 "litoral (cian claro) a la cabecera de más de 4 500 m sobre el "
+                 "nivel del mar (azul profundo), donde nacen las lluvias y los "
+                 "deshielos.",
+                 "Esa diferencia de altura define el carácter del río: la lluvia "
+                 "cae arriba y tarda unos días en llegar abajo, al valle donde "
+                 "vive la gente. Ese retardo natural es, precisamente, la ventana "
+                 "de oportunidad para avisar a tiempo.",
+             ]),
+        dict(id="riesgo", escena="mapa:outlet", num="03",
+             eyebrow="El riesgo",
+             titulo="Aguas abajo: población y agricultura en la zona de crecida",
+             parrafos=[
+                 f"A la salida de la cuenca, la estación de aforo "
+                 f"<b>{est['nombre']}</b> (código {est['codigo']}) mide el caudal "
+                 "que finalmente atraviesa el valle. Es el punto donde una crecida "
+                 "se traduce en riesgo real para viviendas, canales y campos de "
+                 "cultivo.",
+                 f"Cuando el caudal supera el <b>umbral de alerta "
+                 f"Q90 = {UMBRAL_Q90:.1f} m³/s</b> —el percentil 90 de la serie "
+                 "observada— hablamos de una crecida potencialmente peligrosa. "
+                 "Detectarla con antelación es el corazón del sistema.",
+             ]),
+        dict(id="clima", escena="gif", num="04",
+             eyebrow="El clima que la alimenta",
+             titulo="Un ciclo estacional que marca la disponibilidad de agua",
+             parrafos=[
+                 "El río responde a un ritmo climático marcado. La <b>temporada "
+                 "húmeda (diciembre–abril)</b> concentra la lluvia sobre la "
+                 "cabecera andina y llena el cauce; el resto del año, la cuenca se "
+                 "seca y el caudal cae.",
+                 "Estas animaciones muestran la <b>climatología mensual</b> de "
+                 "precipitación y temperatura con sus isolíneas: dónde y cuándo "
+                 "llueve, y cómo cambia la temperatura a lo largo del año. Ese "
+                 "patrón estacional es la base para anticipar tanto las crecidas "
+                 "como los periodos de escasez.",
+             ]),
+        dict(id="estaciones", escena="mapa:estaciones", num="05",
+             eyebrow="Las estaciones y los datos",
+             titulo="Una red de observación que alimenta el pronóstico",
+             parrafos=[
+                 "El sistema se apoya en una red de <b>estaciones</b>: de "
+                 "<b>aforo</b> (azul), que miden el caudal del río, y "
+                 "<b>meteorológicas</b> (naranja), que registran la lluvia sobre "
+                 "la cuenca. Cada una aporta una pieza del rompecabezas.",
+                 "A esa observación de campo se suman fuentes complementarias: "
+                 "el caudal histórico de <b>ANA/SNIRH</b>, la precipitación y "
+                 "temperatura de <b>PISCO (SENAMHI)</b>, la humedad de suelo de "
+                 "<b>ERA5 (ECMWF)</b>, los índices <b>ENSO (NOAA)</b> y datos "
+                 "satelitales. Juntos, dan al modelo una visión completa de la "
+                 "cuenca.",
+             ]),
+        dict(id="evento", escena="evento", num="06",
+             eyebrow="El evento · febrero 2024",
+             titulo="Una crecida real, vista por el pronóstico",
+             parrafos=[
+                 "En el verano de 2024 la cuenca vivió su pico más marcado del "
+                 "periodo de prueba. El hidrograma superpone el <b>caudal "
+                 "observado</b> con la <b>mediana del pronóstico (P50)</b> y su "
+                 "<b>banda de incertidumbre</b>.",
+                 "El pronóstico sigue el ascenso del río y anticipa el cruce del "
+                 "umbral de alerta: días antes del pico, el sistema ya podía "
+                 "advertir que se acercaba una crecida. Esa antelación es el valor "
+                 "que protege al valle.",
+             ]),
+        dict(id="pronostico", escena="leaderboard", num="07",
+             eyebrow="El pronóstico",
+             titulo="Sostener la habilidad a varios días de anticipación",
+             parrafos=[
+                 "¿Hasta cuándo es fiable el pronóstico? Esta curva compara la "
+                 "eficiencia (NSE) de cada modelo al alargar el horizonte. A un "
+                 "día, casi todos aciertan; el reto es <b>mantener la habilidad "
+                 "a varios días</b>, que es cuando el aviso resulta útil.",
+                 "El modelo propuesto, <b>RA-TFT</b>, es el que mejor sostiene la "
+                 "habilidad conforme crece el horizonte. Cada día ganado de "
+                 "anticipación es tiempo para reaccionar: alertar, evacuar o "
+                 "manejar el riego con margen.",
+             ]),
+        dict(id="cierre", escena="cierre", num="08",
+             eyebrow="El producto",
+             titulo="De la alerta diaria a la gestión del agua",
+             parrafos=[
+                 "HidroAlerta Chancay–Huaral une dos escalas: la <b>alerta diaria "
+                 "de crecidas</b>, que protege a la población, y la <b>gestión "
+                 "mensual de la disponibilidad</b>, que ayuda a planificar el agua "
+                 "para la agricultura.",
+                 "Anticipar el agua —cuándo sobra y cuándo falta— es, en el fondo, "
+                 "una forma de cuidar a la cuenca y a quienes dependen de ella. "
+                 "Eso es <b>seguridad hídrica</b>.",
+             ]),
+    ]
+
+
+def bloque_recorrido(meta, cfg_json: str, evento_div: str,
+                     leaderboard_div: str) -> str:
+    """Arma la pestaña «Recorrido»: columna narrativa de pasos + panel sticky.
+
+    El panel sticky contiene TODAS las capas de visual (globo, mapa, GIFs, dos
+    Plotly); el JS muestra la del capítulo activo y oculta las demás. El
+    contenido textual es legible sin JS (los pasos son <section> con encabezado
+    y párrafos). Los GIF se referencian de forma relativa (media/*.gif)."""
+    caps = _story_capitulos(meta)
+
+    # Columna narrativa: un "paso" por capítulo (encabezado + párrafos).
+    pasos = []
+    for c in caps:
+        parr = "".join(f"<p class='story-p'>{p}</p>" for p in c["parrafos"])
+        pasos.append(
+            f"<section class='story-step' id='story-step-{c['id']}' "
+            f"data-escena='{c['escena']}' data-cap='{c['id']}' "
+            f"aria-labelledby='story-h-{c['id']}'>"
+            f"<div class='story-step-inner'>"
+            f"<p class='story-eyebrow'><span class='story-num'>{c['num']}</span>"
+            f"{c['eyebrow']}</p>"
+            f"<h3 class='story-h h-serif' id='story-h-{c['id']}'>{c['titulo']}</h3>"
+            f"{parr}"
+            f"</div></section>")
+    narrativa = "\n".join(pasos)
+
+    # Panel sticky: capas superpuestas (una visible por capítulo).
+    #  · Globo (contenedor para globe.gl; incluye fallback SVG mínimo).
+    #  · Mapa Leaflet nativo (#story-map).
+    #  · GIFs de climatología (referencia relativa media/*.gif).
+    #  · Los dos Plotly (evento + leaderboard), inyectados por Python.
+    # data-cap en la leyenda del mapa permite al JS actualizar el texto.
+    gifs_layer = (
+        "<div class='story-layer story-layer-gif' data-layer='gif' hidden>"
+        "  <figure class='story-gif-fig'>"
+        "    <img class='story-gif' src='media/precip_clim.gif' loading='lazy'"
+        "         alt='Animación de la climatología mensual de precipitación "
+        "sobre la cuenca, con isolíneas'>"
+        "    <figcaption class='story-gif-cap'>Precipitación · climatología "
+        "mensual (mm)</figcaption>"
+        "  </figure>"
+        "  <figure class='story-gif-fig'>"
+        "    <img class='story-gif' src='media/temp_clim.gif' loading='lazy'"
+        "         alt='Animación de la climatología mensual de temperatura "
+        "sobre la cuenca, con isolíneas'>"
+        "    <figcaption class='story-gif-cap'>Temperatura · climatología "
+        "mensual (°C)</figcaption>"
+        "  </figure>"
+        "</div>")
+
+    panel = f"""
+    <div class="story-sticky" aria-hidden="true">
+      <div class="story-stage">
+        <!-- Globo 3D (globe.gl); si el WebGL/textura fallan, queda el fallback. -->
+        <div class="story-layer story-layer-globe" data-layer="globo">
+          <div id="story-globe" class="story-globe"></div>
+          <div class="story-globe-fallback" aria-hidden="true"></div>
+        </div>
+        <!-- Mapa Leaflet nativo (satélite Esri + subcuencas + estaciones). -->
+        <div class="story-layer story-layer-map" data-layer="mapa" hidden>
+          <div id="story-map" class="story-map"></div>
+          <div class="story-map-legend" id="story-map-legend" aria-hidden="true"></div>
+        </div>
+        {gifs_layer}
+        <!-- Plotly · evento feb-2024. -->
+        <div class="story-layer story-layer-plot" data-layer="evento" hidden>
+          <div class="story-plot-card">{evento_div}</div>
+        </div>
+        <!-- Plotly · leaderboard NSE vs horizonte. -->
+        <div class="story-layer story-layer-plot" data-layer="leaderboard" hidden>
+          <div class="story-plot-card">{leaderboard_div}</div>
+        </div>
+      </div>
+    </div>"""
+
+    return f"""
+    <div class="story" aria-label="Recorrido narrativo por la cuenca">
+      <div class="story-grid">
+        <div class="story-narr">
+{narrativa}
+        </div>
+        {panel}
+      </div>
+    </div>
+    <script id="story-data" type="application/json">{cfg_json}</script>"""
+
+
 # ── Ensamblado del HTML final ─────────────────────────────────────────────────
 def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
-              enso_callout, enso_r2_div, embed_div, imgs, meta, serie) -> str:
+              enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
+              recorrido_div) -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -1496,6 +1868,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     # Pestañas: (id, etiqueta). El orden define tablist y navegación.
     tabs = [
         ("resumen", "Resumen"),
+        ("recorrido", "Recorrido"),
         ("pronostico", "Pronóstico"),
         ("modelos", "Modelos"),
         ("clima", "Clima"),
@@ -1730,6 +2103,23 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       </section>
 
       {contadores_html}
+    </div>
+  </section>
+
+  <!-- ══ Pestaña · Recorrido (storytelling / scrollytelling) ═══════════════ -->
+  <section role="tabpanel" id="tab-recorrido" aria-labelledby="tab-btn-recorrido"
+           class="tabpanel tabpanel-story" tabindex="0" hidden>
+    <div class="tab-body tab-body-story">
+      <header class="tab-head reveal">
+        <p class="eyebrow eyebrow-cyan">Recorrido · seguridad hídrica</p>
+        <h2 class="h-serif">De la cabecera al valle: anticipar el agua en la
+          cuenca Chancay–Huaral</h2>
+        <p class="prose prose-wide">Desplácese para recorrer la historia: a la
+        izquierda avanza el relato; a la derecha, un visual que cambia con cada
+        capítulo —del globo terráqueo al mapa de la cuenca, la climatología y el
+        pronóstico de crecidas.</p>
+      </header>
+      {recorrido_div}
     </div>
   </section>
 
@@ -2598,6 +2988,152 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .emb-dot:focus-visible {{ outline:none;
   box-shadow:0 0 0 3px rgba(11,110,140,.22); }}
 
+/* ── STORYMAP «Recorrido» (scrollytelling) ────────────────────────── */
+/* Esta pestaña SÍ tiene scroll largo (a propósito): la columna narrativa
+   avanza mientras un panel PEGAJOSO (sticky) muestra el visual del capítulo
+   activo (globo → mapa → GIF → gráficos). Las demás pestañas no cambian. */
+.tab-body-story {{ padding-bottom:clamp(30px,4vw,56px); gap:clamp(20px,3vw,32px); }}
+/* Rejilla: narrativa (izquierda) + sticky (derecha). El sticky ocupa alto de
+   viewport y se pega bajo la barra superior + de pestañas. */
+.story-grid {{ display:grid;
+  grid-template-columns:minmax(0,0.92fr) minmax(0,1.08fr);
+  gap:clamp(24px,4vw,64px); align-items:start; position:relative; }}
+.story-narr {{ min-width:0; display:flex; flex-direction:column; }}
+/* Paso narrativo: alto generoso para dar recorrido de scroll; el contenido se
+   centra verticalmente. El último no necesita tanto colchón. */
+.story-step {{ min-height:82vh; display:flex; align-items:center;
+  padding:6vh 0; }}
+.story-step:first-child {{ min-height:76vh; padding-top:2vh; }}
+.story-step:last-child {{ min-height:70vh; }}
+.story-step-inner {{ width:100%; max-width:56ch; }}
+.story-eyebrow {{ display:flex; align-items:center; gap:10px;
+  text-transform:uppercase; letter-spacing:.12em; font-size:11.5px;
+  font-weight:600; color:var(--accent); margin:0 0 14px; }}
+.story-num {{ font-family:var(--mono); font-variant-numeric:tabular-nums;
+  font-size:11px; font-weight:600; color:#fff; background:var(--deep);
+  border-radius:6px; padding:3px 7px; line-height:1; letter-spacing:.04em; }}
+.story-h {{ font-size:clamp(1.5rem,2.8vw,2.15rem); line-height:1.16;
+  margin-bottom:16px; color:var(--ink); }}
+.story-p {{ color:#3B4A55; font-size:clamp(15px,1.55vw,17px); line-height:1.72;
+  max-width:56ch; }}
+.story-p + .story-p {{ margin-top:14px; }}
+.story-p b {{ color:var(--ink); font-weight:600; }}
+
+/* Panel pegajoso: se pega bajo la cabecera (topbar ~ + tabbar). Alto de casi
+   toda la ventana; contiene las capas superpuestas del visual. */
+.story-sticky {{ position:sticky; top:120px; height:calc(100vh - 148px);
+  min-height:420px; align-self:start; }}
+.story-stage {{ position:relative; width:100%; height:100%;
+  border-radius:var(--radius); overflow:hidden;
+  border:1px solid var(--border); box-shadow:var(--shadow);
+  background:linear-gradient(180deg,#0A2230 0%,#0C1E2A 100%); }}
+/* Capas: superpuestas y en cruz-fundido (solo una activa a la vez). El JS
+   quita [hidden] a la activa y lo pone a las demás. */
+.story-layer {{ position:absolute; inset:0; opacity:0;
+  transition:opacity .5s ease; }}
+.story-layer.is-active {{ opacity:1; }}
+.story-layer[hidden] {{ display:none; }}
+
+/* Globo 3D: lienzo a pantalla completa del panel; fondo espacial oscuro. */
+.story-layer-globe {{ background:
+  radial-gradient(120% 120% at 50% 30%, #0E2E42 0%, #081722 70%, #050E15 100%); }}
+.story-globe {{ position:absolute; inset:0; width:100%; height:100%; }}
+.story-globe canvas {{ display:block; }}
+/* Fallback del globo (si WebGL o la textura CDN fallan): esfera con "malla".
+   El JS lo revela (.is-shown) solo si globe.gl no arranca → nunca queda blanco. */
+.story-globe-fallback {{ position:absolute; inset:0; display:none;
+  background:
+    radial-gradient(circle at 42% 38%, rgba(27,168,196,.35), transparent 42%),
+    radial-gradient(circle at 50% 50%, #0B6E8C 0%, #0A3D54 62%, #072A3B 100%);
+  border-radius:50%;
+  width:min(64%,64vh); height:min(64%,64vh);
+  margin:auto; inset:0;
+  box-shadow:0 0 80px rgba(11,110,140,.5), inset -18px -18px 60px rgba(0,0,0,.5);
+}}
+.story-globe-fallback.is-shown {{ display:block; }}
+.story-globe-fallback::after {{ content:""; position:absolute; inset:0;
+  border-radius:50%;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 26px,
+      rgba(255,255,255,.10) 26px 27px),
+    repeating-linear-gradient(90deg, transparent 0 26px,
+      rgba(255,255,255,.10) 26px 27px);
+  -webkit-mask-image:radial-gradient(circle at 50% 50%, #000 60%, transparent 72%);
+  mask-image:radial-gradient(circle at 50% 50%, #000 60%, transparent 72%); }}
+
+/* Mapa Leaflet nativo. */
+.story-map {{ position:absolute; inset:0; width:100%; height:100%;
+  background:#0C1E2A; z-index:0; }}
+/* Controles/atribución de Leaflet con la tipografía del proyecto. */
+.story-map .leaflet-container {{ font-family:var(--sans); }}
+.story-map .leaflet-control-attribution {{ font-size:10px;
+  background:rgba(255,255,255,.78); }}
+/* Leyenda del mapa (capítulo activo). */
+.story-map-legend {{ position:absolute; left:14px; bottom:14px; z-index:500;
+  background:rgba(255,255,255,.95); border:1px solid var(--border);
+  border-radius:10px; box-shadow:0 1px 8px rgba(10,61,84,.18);
+  padding:10px 13px; font-family:var(--sans); font-size:12px; color:var(--ink);
+  line-height:1.55; max-width:min(280px,68%);
+  transition:opacity .4s ease; }}
+.story-map-legend b {{ color:var(--deep); }}
+.story-map-legend .lg-title {{ display:block; font-size:10.5px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.07em; color:var(--deep);
+  margin-bottom:5px; }}
+.story-map-legend .lg-sw {{ display:inline-block; width:11px; height:11px;
+  border-radius:2px; vertical-align:middle; margin-right:5px; }}
+.story-map-legend .lg-dot {{ font-size:14px; vertical-align:middle;
+  margin-right:3px; }}
+.story-popup .leaflet-popup-content-wrapper {{ border-radius:10px; }}
+.story-popup .leaflet-popup-content {{ font-family:var(--sans); font-size:13px;
+  color:var(--ink); margin:11px 14px; line-height:1.5; }}
+.story-popup b {{ color:var(--deep); }}
+
+/* GIFs de climatología: dos animaciones apiladas, encajadas en el panel. */
+.story-layer-gif {{ display:flex; flex-direction:column;
+  gap:clamp(10px,1.6vw,18px); padding:clamp(12px,2vw,22px);
+  background:linear-gradient(180deg,#F1F6F9 0%, var(--surf) 100%);
+  align-items:center; justify-content:center; }}
+.story-gif-fig {{ margin:0; display:flex; flex-direction:column; gap:6px;
+  align-items:center; min-height:0; max-height:calc(50% - 8px); }}
+.story-gif {{ display:block; max-width:100%; max-height:100%; width:auto;
+  height:auto; object-fit:contain; border-radius:8px;
+  border:1px solid var(--border); background:#fff; box-shadow:var(--shadow-sm); }}
+.story-gif-cap {{ font-family:var(--sans); font-size:12px; font-weight:600;
+  color:var(--deep); letter-spacing:.01em; text-align:center; }}
+
+/* Capas Plotly (evento / leaderboard): tarjeta clara centrada. */
+.story-layer-plot {{ display:flex; align-items:center; justify-content:center;
+  padding:clamp(10px,1.8vw,18px);
+  background:linear-gradient(180deg,#F1F6F9 0%, var(--surf) 100%); }}
+.story-plot-card {{ width:100%; max-width:100%; }}
+/* El div Plotly del recorrido no debe llevar el marco genérico (ya vive en la
+   tarjeta clara del panel); se anula borde/sombra/relleno. */
+.story-plot-card .js-plotly-plot {{ background:transparent; border:0;
+  border-radius:0; box-shadow:none; padding:0; width:100%; }}
+
+/* Responsive: en pantallas estrechas, una sola columna. El sticky pasa a ser
+   más bajo y se pega bajo la cabecera; la narrativa fluye encima. */
+@media (max-width:900px) {{
+  .story-grid {{ grid-template-columns:1fr; gap:16px; }}
+  /* El sticky va PRIMERO en el flujo visual (aparece arriba), pegado. */
+  .story-sticky {{ order:-1; position:sticky; top:112px;
+    height:min(56vh,460px); min-height:320px; margin-bottom:8px; }}
+  .story-step {{ min-height:auto; padding:5vh 0; }}
+  .story-step:first-child {{ min-height:auto; padding-top:3vh; }}
+  .story-step-inner {{ max-width:none; }}
+}}
+@media (max-width:640px) {{
+  .story-sticky {{ top:64px; height:min(52vh,420px); }}
+  .story-gif-fig {{ max-height:calc(50% - 6px); }}
+}}
+
+/* Reduced-motion: sin cruz-fundido brusco (cambio inmediato) y el globo no
+   auto-rota (lo maneja el JS: rotación desactivada, enfoque a Perú). */
+@media (prefers-reduced-motion:reduce) {{
+  .story-layer {{ transition:none; }}
+  .story-map-legend {{ transition:none; }}
+}}
+
 /* ── Movimiento con propósito ─────────────────────────────────────── */
 /* Solo se oculta si hay JS (clase js-on en <html>); sin JS todo es visible. */
 .js-on .reveal {{ opacity:0; transform:translateY(16px);
@@ -3393,6 +3929,426 @@ JS_COUNTERS = """
 """
 
 
+# ── Script del STORYMAP «Recorrido» (scrollytelling) ──────────────────────────
+# Motor híbrido del panel pegajoso: un IntersectionObserver sobre los "pasos"
+# narrativos determina el capítulo activo y reconfigura el visual sticky:
+#   · globo         — globe.gl (three.js) por CDN, textura de la Tierra de CDN;
+#                     rota y enfoca Perú → la cuenca. Fallback: esfera sólida con
+#                     malla (CSS) si WebGL/textura fallan (nunca queda en blanco).
+#                     Bajo reduced-motion no auto-rota (estático sobre Perú).
+#   · mapa:<vista>  — mapa Leaflet NATIVO (no iframe) con satélite Esri, límite y
+#                     subcuencas (color por elevación) y estaciones; se controla
+#                     por capítulo con flyTo/fitBounds + resaltado + leyenda.
+#   · gif           — dos GIF de climatología (referencia relativa media/*.gif).
+#   · evento        — Plotly del hidrograma feb-2024 (resize al mostrarse).
+#   · leaderboard   — Plotly NSE vs horizonte (resize al mostrarse).
+# La inicialización (globo/mapa) ocurre al mostrarse la pestaña "Recorrido"
+# (evento 'hidroalerta:tabshown'); al salir de la pestaña se pausa la rotación
+# del globo (rendimiento). Todo respeta prefers-reduced-motion.
+JS_STORY = """
+(function(){
+  function run(){
+    var section = document.querySelector('.story');
+    var dataEl = document.getElementById('story-data');
+    if (!section || !dataEl) return;
+    var CFG;
+    try { CFG = JSON.parse(dataEl.textContent); } catch(e){ return; }
+
+    var reduce = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var panelTab = document.getElementById('tab-recorrido');
+
+    // ── Referencias a capas del sticky ──────────────────────────────────────
+    var layers = Array.prototype.slice.call(
+      section.querySelectorAll('.story-layer'));
+    function layerByName(name){
+      for (var i=0;i<layers.length;i++){
+        if (layers[i].getAttribute('data-layer') === name) return layers[i];
+      }
+      return null;
+    }
+    var layGlobe = layerByName('globo');
+    var layMap = layerByName('mapa');
+    var layGif = layerByName('gif');
+    var layEvento = layerByName('evento');
+    var layLeader = layerByName('leaderboard');
+
+    // Mapea la "escena" de un paso (data-escena) a {layer, vista}.
+    function parseEscena(esc){
+      esc = esc || '';
+      if (esc.indexOf('mapa') === 0){
+        var v = esc.split(':')[1] || 'cuenca';
+        return { layer: layMap, vista: v };
+      }
+      if (esc === 'globo') return { layer: layGlobe };
+      if (esc === 'gif') return { layer: layGif };
+      if (esc === 'evento') return { layer: layEvento };
+      if (esc === 'leaderboard') return { layer: layLeader };
+      if (esc === 'cierre') return { layer: layMap, vista: 'cierre' };
+      return { layer: layGlobe };
+    }
+
+    // Muestra una capa (oculta las demás) con cruz-fundido.
+    function showLayer(target){
+      layers.forEach(function(l){
+        if (l === target){
+          l.hidden = false;
+          // Fuerza reflow para que la transición de opacidad se aprecie.
+          void l.offsetWidth;
+          l.classList.add('is-active');
+        } else {
+          l.classList.remove('is-active');
+          l.hidden = true;
+        }
+      });
+    }
+
+    // ── Globo 3D (globe.gl) con fallback ────────────────────────────────────
+    var globeObj = null, globeInit = false, globeFailed = false;
+    var globeEl = document.getElementById('story-globe');
+    var globeFallback = section.querySelector('.story-globe-fallback');
+    var FOCO = CFG.foco_cuenca || { lat:-11.35, lon:-76.9 };
+
+    function showGlobeFallback(){
+      globeFailed = true;
+      if (globeFallback){ globeFallback.classList.add('is-shown'); }
+    }
+
+    function sizeGlobe(){
+      if (!globeObj || !globeEl) return;
+      var w = globeEl.clientWidth, h = globeEl.clientHeight;
+      if (w > 0 && h > 0){
+        try { globeObj.width(w).height(h); } catch(e){}
+      }
+    }
+
+    function initGlobe(){
+      if (globeInit) return;
+      globeInit = true;
+      // Sin WebGL o sin la librería → fallback inmediato (no queda en blanco).
+      if (typeof Globe === 'undefined' || !globeEl){ showGlobeFallback(); return; }
+      try {
+        globeObj = Globe()(globeEl)
+          .backgroundColor('rgba(0,0,0,0)')
+          .showAtmosphere(true)
+          .atmosphereColor('#1BA8C4')
+          .atmosphereAltitude(0.18);
+        // Textura de la Tierra por CDN (blue marble). Si falla, el globo queda
+        // con color sólido (globeMaterial) → nunca en blanco.
+        try {
+          globeObj.globeImageUrl(
+            'https://unpkg.com/three-globe@2.31.0/example/img/earth-blue-marble.jpg');
+        } catch(e){}
+        // Color sólido de respaldo del propio globo (por si la imagen no carga).
+        try {
+          if (globeObj.globeMaterial){
+            var mat = globeObj.globeMaterial();
+            if (mat && mat.color && mat.color.set){ mat.color.set('#0A3D54'); }
+          }
+        } catch(e){}
+        // Punto + anillo sobre la cuenca Chancay–Huaral.
+        var pts = [{ lat: FOCO.lat, lng: FOCO.lon, size: 0.9 }];
+        globeObj.pointsData(pts)
+          .pointLat('lat').pointLng('lng').pointColor(function(){ return '#1BA8C4'; })
+          .pointAltitude(0.06).pointRadius(0.9);
+        if (globeObj.ringsData){
+          globeObj.ringsData(pts)
+            .ringLat('lat').ringLng('lng')
+            .ringColor(function(){ return function(t){
+              return 'rgba(27,168,196,' + (1 - t) + ')'; }; })
+            .ringMaxRadius(4).ringPropagationSpeed(reduce ? 0 : 2)
+            .ringRepeatPeriod(reduce ? 0 : 900);
+        }
+        sizeGlobe();
+        // Vista inicial: enfoca Perú / la cuenca.
+        try { globeObj.pointOfView(
+          { lat: FOCO.lat, lng: FOCO.lon, altitude: reduce ? 1.9 : 2.6 },
+          0); } catch(e){}
+        // Auto-rotación (salvo reduced-motion): gira y luego se detiene al
+        // enfocar la cuenca (efecto "aterrizaje").
+        try {
+          var ctrls = globeObj.controls();
+          if (ctrls){
+            ctrls.enableZoom = false;
+            ctrls.autoRotate = !reduce;
+            ctrls.autoRotateSpeed = 0.9;
+          }
+          if (!reduce){
+            // Deja girar un momento y luego acerca el foco a la cuenca.
+            setTimeout(function(){
+              try { globeObj.pointOfView(
+                { lat: FOCO.lat, lng: FOCO.lon, altitude: 1.8 }, 2600); } catch(e){}
+            }, 900);
+            setTimeout(function(){
+              try { var c = globeObj.controls(); if (c){ c.autoRotate = false; } }
+              catch(e){}
+            }, 4200);
+          }
+        } catch(e){}
+      } catch(e){ showGlobeFallback(); }
+    }
+
+    // Pausa/retoma la rotación del globo (rendimiento fuera de la pestaña).
+    function setGlobeSpinning(on){
+      if (!globeObj) return;
+      try { var c = globeObj.controls();
+        if (c){ c.autoRotate = (on && !reduce && !globeFailed) ? c.autoRotate : false; } }
+      catch(e){}
+    }
+    function pauseGlobe(){
+      if (!globeObj) return;
+      try { var c = globeObj.controls(); if (c){ c.autoRotate = false; } } catch(e){}
+    }
+
+    // ── Mapa Leaflet nativo ─────────────────────────────────────────────────
+    var map = null, mapInit = false, subsLayer = null, estLayer = null,
+        limLayer = null, outletMarker = null;
+    var mapEl = document.getElementById('story-map');
+    var legendEl = document.getElementById('story-map-legend');
+
+    function initMap(){
+      if (mapInit) return;
+      mapInit = true;
+      if (typeof L === 'undefined' || !mapEl){ return; }
+      map = L.map(mapEl, {
+        zoomControl: true, attributionControl: true, scrollWheelZoom: false,
+        center: [CFG.foco_cuenca.lat, CFG.foco_cuenca.lon], zoom: 10
+      });
+      // Base satélite Esri World Imagery.
+      L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        { attribution: 'Teselas © Esri', maxZoom: 18 }).addTo(map);
+
+      // Límite de cuenca (línea discontinua profunda).
+      limLayer = L.geoJSON(CFG.limite, { interactive:false, style: function(){
+        return { color: CFG.col_deep, weight: 2.4, fill:false, dashArray:'6,4' }; }
+      }).addTo(map);
+
+      // Subcuencas coloreadas por elevación (color ya resuelto en properties).
+      subsLayer = L.geoJSON(CFG.subcuencas, {
+        style: function(f){
+          return { fillColor: f.properties.color, color:'#FFFFFF', weight:1.1,
+            fillOpacity:0.66 };
+        },
+        onEachFeature: function(f, layer){
+          var p = f.properties;
+          var outlet = p.outlet
+            ? '<br><b style="color:' + CFG.col_crit + '">Subcuenca de salida</b>' : '';
+          layer.bindPopup(
+            '<b>' + p.nombre + '</b><br>Elevación: ' +
+            p.elev_m.toLocaleString('es') + ' m<br>Área: ' +
+            p.area_km2.toLocaleString('es') + ' km²' + outlet,
+            { className:'story-popup', maxWidth:260 });
+          layer.on('mouseover', function(){ layer.setStyle({ weight:2.4,
+            fillOpacity:0.82, color: CFG.col_deep }); });
+          layer.on('mouseout', function(){ subsLayer.resetStyle(layer); });
+        }
+      }).addTo(map);
+
+      // Estaciones (aforo azul / meteo naranja). Círculos + popups.
+      estLayer = L.layerGroup();
+      CFG.estaciones.forEach(function(e){
+        var m = L.circleMarker([e.lat, e.lon], {
+          radius: e.tipo === 'aforo' ? 8 : 7, color:'#FFFFFF', weight:2,
+          fillColor: e.color, fillOpacity:0.95 });
+        var tit = e.tipo === 'aforo'
+          ? 'Estación de aforo (caudal)' : 'Estación meteorológica (lluvia)';
+        m.bindPopup('<b>' + tit + '</b><br>' + e.nombre + '<br>Código: ' +
+          e.codigo + '<br>' + e.desc, { className:'story-popup', maxWidth:280 });
+        m.addTo(estLayer);
+      });
+
+      // Marcador del outlet (Santo Domingo) para el capítulo del riesgo.
+      outletMarker = L.circleMarker([CFG.outlet.lat, CFG.outlet.lon], {
+        radius: 11, color: CFG.col_crit, weight: 3, fillColor:'#FFFFFF',
+        fillOpacity: 0.9 });
+      outletMarker.bindPopup('<b>' + CFG.outlet.nombre + '</b><br>Estación de ' +
+        'aforo · salida de la cuenca<br>Código: ' + CFG.outlet.codigo,
+        { className:'story-popup', maxWidth:280 });
+    }
+
+    // Límites de la cuenca (bounds) para encuadres.
+    function cuencaBounds(){
+      try { return subsLayer.getBounds(); } catch(e){ return null; }
+    }
+
+    function addLayer(l){ if (l && !map.hasLayer(l)) l.addTo(map); }
+    function delLayer(l){ if (l && map.hasLayer(l)) map.removeLayer(l); }
+
+    var mapaVistaActual = null;
+    function setMapView(vista){
+      if (!map) return;
+      // Capas visibles según el capítulo:
+      //  · cuenca      → solo subcuencas por elevación (sin estaciones ni outlet).
+      //  · outlet      → resalta la estación de salida (zona de crecida).
+      //  · estaciones  → aparecen todas las estaciones (aforo + meteo).
+      //  · cierre      → vista general con las estaciones (mensaje de producto).
+      var mostrarEst = (vista === 'estaciones' || vista === 'cierre');
+      var mostrarOutlet = (vista === 'outlet');
+      if (mostrarEst){ addLayer(estLayer); } else { delLayer(estLayer); }
+      if (mostrarOutlet){ addLayer(outletMarker); } else { delLayer(outletMarker); }
+
+      setLegend(vista);
+      if (vista === mapaVistaActual){ return; }
+      mapaVistaActual = vista;
+      var anim = !reduce;
+
+      if (vista === 'outlet'){
+        map.flyTo([CFG.outlet.lat, CFG.outlet.lon], 12,
+          { duration: anim ? 1.6 : 0, animate: anim });
+      } else {
+        // cuenca / estaciones / cierre → encuadre general de la cuenca.
+        var b = cuencaBounds();
+        if (b){ map.flyToBounds(b, { padding:[28,28], duration: anim ? 1.4 : 0,
+          animate: anim }); }
+      }
+      // Reajuste de tamaño tras animar (por si el panel cambió de dimensión).
+      setTimeout(function(){ try { map.invalidateSize(); } catch(e){} }, 60);
+    }
+
+    // Leyenda contextual por capítulo.
+    function setLegend(vista){
+      if (!legendEl) return;
+      var html = '';
+      if (vista === 'cuenca'){
+        html = '<span class="lg-title">Elevación (m)</span>' +
+          '<span class="lg-sw" style="background:#7FD3E3"></span>&lt; 1 000<br>' +
+          '<span class="lg-sw" style="background:#3FA9C4"></span>1 000 – 2 500<br>' +
+          '<span class="lg-sw" style="background:' + CFG.col_accent +
+            '"></span>2 500 – 3 800<br>' +
+          '<span class="lg-sw" style="background:' + CFG.col_deep +
+            '"></span>&gt; 3 800';
+      } else if (vista === 'outlet'){
+        html = '<span class="lg-title">Zona de crecida</span>' +
+          '<span class="lg-dot" style="color:' + CFG.col_crit +
+            '">&#9679;</span> Estación ' + CFG.outlet.nombre + '<br>' +
+          'Umbral de alerta Q90 = <b>' + CFG.umbral.toFixed(1) + ' m³/s</b>';
+      } else if (vista === 'estaciones' || vista === 'cierre'){
+        html = '<span class="lg-title">Estaciones</span>' +
+          '<span class="lg-dot" style="color:' + CFG.col_accent +
+            '">&#9679;</span> Aforo (caudal)<br>' +
+          '<span class="lg-dot" style="color:' + CFG.col_warn +
+            '">&#9679;</span> Meteorológica (lluvia)';
+      }
+      legendEl.innerHTML = html;
+      legendEl.style.opacity = html ? '1' : '0';
+    }
+
+    // ── Redibujo de los Plotly del recorrido al mostrarse ───────────────────
+    function resizePlot(layer){
+      if (!layer || typeof Plotly === 'undefined' || !Plotly.Plots) return;
+      var div = layer.querySelector('.js-plotly-plot');
+      if (!div) return;
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          try { Plotly.Plots.resize(div); } catch(e){}
+        });
+      });
+    }
+
+    // ── Activación de un capítulo ───────────────────────────────────────────
+    var escenaActual = null;
+    function activarEscena(esc){
+      if (esc === escenaActual) return;
+      escenaActual = esc;
+      var info = parseEscena(esc);
+      showLayer(info.layer);
+      if (info.layer === layGlobe){
+        initGlobe();
+        setGlobeSpinning(true);
+      } else {
+        pauseGlobe();
+      }
+      if (info.layer === layMap){
+        initMap();
+        // Tras revelar la capa, Leaflet necesita invalidateSize (nació oculto).
+        setTimeout(function(){
+          try { if (map){ map.invalidateSize(); } } catch(e){}
+          setMapView(info.vista || 'cuenca');
+        }, reduce ? 0 : 120);
+      }
+      if (info.layer === layEvento){ resizePlot(layEvento); }
+      if (info.layer === layLeader){ resizePlot(layLeader); }
+    }
+
+    // ── IntersectionObserver sobre los pasos narrativos ─────────────────────
+    var steps = Array.prototype.slice.call(
+      section.querySelectorAll('.story-step'));
+    var stepIO = null;
+    function observeSteps(){
+      if (stepIO || !('IntersectionObserver' in window)) return;
+      // El paso "activo" es el que cruza el centro del viewport.
+      stepIO = new IntersectionObserver(function(entries){
+        // Elige la entrada visible más cercana al centro.
+        var best = null;
+        entries.forEach(function(en){
+          if (en.isIntersecting){
+            if (!best || en.intersectionRatio > best.intersectionRatio){
+              best = en;
+            }
+          }
+        });
+        if (best){
+          activarEscena(best.target.getAttribute('data-escena'));
+        }
+      }, { root:null, rootMargin:'-45% 0px -45% 0px', threshold:[0, 0.5, 1] });
+      steps.forEach(function(s){ stepIO.observe(s); });
+    }
+
+    // ── Inicialización perezosa al mostrarse la pestaña "Recorrido" ─────────
+    var arrancado = false;
+    function arrancar(){
+      if (arrancado) return;
+      arrancado = true;
+      // Escena inicial = la del primer paso (globo).
+      var first = steps[0];
+      activarEscena(first ? first.getAttribute('data-escena') : 'globo');
+      // Sin IntersectionObserver: deja el globo (contenido legible sin JS ya
+      // está en el DOM). Con él, sigue el scroll.
+      observeSteps();
+    }
+
+    function panelVisible(){
+      return panelTab && !panelTab.hidden;
+    }
+
+    // Si la pestaña ya está activa al cargar (deep-link #recorrido), arranca.
+    if (panelVisible()){ arrancar(); }
+
+    document.addEventListener('hidroalerta:tabshown', function(ev){
+      var panel = ev.detail && ev.detail.panel;
+      if (panel && panel.id === 'tab-recorrido'){
+        arrancar();
+        // Reajusta mapa/globo/plots por si nacieron ocultos.
+        setTimeout(function(){
+          try { if (map){ map.invalidateSize(); } } catch(e){}
+          sizeGlobe();
+          setGlobeSpinning(escenaActual === 'globo' || escenaActual === 'intro');
+        }, 160);
+      } else {
+        // Salimos de "Recorrido": pausa el globo (rendimiento).
+        pauseGlobe();
+      }
+    });
+
+    // Redimensionado de la ventana: ajusta globo y mapa del panel.
+    var rt;
+    window.addEventListener('resize', function(){
+      clearTimeout(rt);
+      rt = setTimeout(function(){
+        if (!panelVisible()) return;
+        sizeGlobe();
+        try { if (map){ map.invalidateSize(); } } catch(e){}
+      }, 180);
+    });
+  }
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
+"""
+
+
 def main():
     (serie, metr, meta, subs, lim, fcast, mens, enso, acf, ccf,
      estaciones, enso_abl, enso_extra, emb_coords, emb_sil) = cargar()
@@ -3417,10 +4373,17 @@ def main():
     enso_r2_div = construir_enso_r2(enso, enso_extra)
     cfg_embed = embeddings_datos(emb_coords, emb_sil)
     embed_div = bloque_embeddings(cfg_embed)
+    # Recorrido (storytelling): payload del mapa + figuras propias + sección.
+    cfg_story = storymap_datos(meta, subs, lim, estaciones)
+    story_evento_div = construir_evento_recorrido(serie)
+    story_leaderboard_div = construir_leaderboard_recorrido(metr)
+    recorrido_div = bloque_recorrido(meta, cfg_story, story_evento_div,
+                                     story_leaderboard_div)
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
-                       enso_callout, enso_r2_div, embed_div, imgs, meta, serie)
+                       enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
+                       recorrido_div)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
@@ -3433,6 +4396,12 @@ def main():
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<!-- Leaflet (mapa nativo del storytelling "Recorrido"): CSS + JS por CDN. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<!-- globe.gl para el Cap. 1 (globo terráqueo 3D). Trae three.js embebido; sin
+     token ni Mapbox. Un único bundle evita el aviso de doble instancia de Three. -->
+<script src="https://unpkg.com/globe.gl@2.32.2/dist/globe.gl.min.js"></script>
 <style>{estilos()}</style>
 </head>
 <body>
@@ -3442,6 +4411,7 @@ def main():
 <script>{JS_FORECAST}</script>
 <script>{JS_EMBED}</script>
 <script>{JS_COUNTERS}</script>
+<script>{JS_STORY}</script>
 </body>
 </html>
 """
