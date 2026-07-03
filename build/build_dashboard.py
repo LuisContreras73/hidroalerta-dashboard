@@ -211,17 +211,25 @@ def tramos_sin_aforo(serie: pd.DataFrame):
 # ── Mapa Folium ──────────────────────────────────────────────────────────────
 def construir_mapa(meta, subs, lim, estaciones) -> str:
     est = meta["estacion"]
+    # Sin basemap inicial: la capa base activa por defecto se controla por el
+    # ORDEN de los TileLayer (el primero añadido con show=True es el que se ve
+    # al cargar). Se añade Esri satélite primero → base por defecto.
     m = folium.Map(
         location=[-11.30, -76.85],
         zoom_start=10,
-        tiles="CartoDB positron",     # basemap claro como principal
+        tiles=None,
         control_scale=True,
     )
+    # Capa base por defecto: Esri World Imagery (satélite).
+    folium.TileLayer(
+        "Esri.WorldImagery", name="Satélite (Esri)", control=True, show=True,
+        attr="Tiles © Esri").add_to(m)
+    # Alternativas claras (callejero/positron), disponibles en el control.
+    folium.TileLayer(
+        "CartoDB positron", name="CartoDB Positron (claro)", control=True,
+        show=False).add_to(m)
     folium.TileLayer(
         "OpenStreetMap", name="OpenStreetMap", control=True, show=False).add_to(m)
-    folium.TileLayer(
-        "Esri.WorldImagery", name="Satélite (Esri)", control=True, show=False,
-        attr="Tiles © Esri").add_to(m)
 
     # Límite de cuenca
     folium.GeoJson(
@@ -665,6 +673,9 @@ def tabla_metricas_html(metr: pd.DataFrame) -> str:
             celdas = []
             for c in cols:
                 v = r[c]
+                if pd.isna(v):
+                    celdas.append("<td class='num na'>—</td>")
+                    continue
                 txt = f"{v:.3f}" if c != "MAE" else f"{v:.2f}"
                 chip = " chip-best" if v == best[c] else ""
                 celdas.append(f"<td class='num{chip}'>{txt}</td>")
@@ -922,6 +933,61 @@ def bloque_enso_callout(extra: dict) -> str:
     </aside>"""
 
 
+# ── 09d · Dispersión Niño costero vs ONI global (R² entre índices) ─────────────
+def construir_enso_r2(enso: pd.DataFrame, extra: dict) -> str:
+    """Dispersión Niño costero (x) vs ONI global (y) con recta de regresión y la
+    anotación R² = 0.39 (r = 0.625). Sustenta gráficamente la correlación entre
+    índices (junto a la ablación ENSO). Columnas de enso.csv: coastal, oni."""
+    e = enso.dropna(subset=["coastal", "oni"])
+    x = e["coastal"].to_numpy(dtype=float)
+    y = e["oni"].to_numpy(dtype=float)
+    r = float(extra.get("r_indices", 0.625))
+    r2 = float(extra.get("r2_indices", 0.39))
+
+    fig = go.Figure()
+    # Nube de puntos mensuales (color agua translúcido).
+    fig.add_trace(go.Scatter(
+        x=x, y=y, mode="markers",
+        marker=dict(color="rgba(11,110,140,0.55)", size=6, line=dict(width=0)),
+        name="Mes (anomalías)",
+        hovertemplate="Niño costero %{x:.2f} °C<br>ONI global %{y:.2f} °C"
+                      "<extra></extra>"))
+
+    # Recta de regresión OLS (ONI ~ costero) sobre el rango observado.
+    if len(x) >= 2 and np.ptp(x) > 0:
+        b1, b0 = np.polyfit(x, y, 1)
+        xr = np.array([float(x.min()), float(x.max())])
+        yr = b0 + b1 * xr
+        fig.add_trace(go.Scatter(
+            x=xr, y=yr, mode="lines",
+            line=dict(color=COL_CRIT, width=2.4),
+            name="Ajuste lineal",
+            hovertemplate="Ajuste: ONI = %{y:.2f} °C<extra></extra>"))
+
+    # Anotación editorial con R² (publicado) y r.
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0.03, y=0.97, xanchor="left",
+        yanchor="top", showarrow=False,
+        text=f"<b>R² = {r2:.2f}</b>   (r = {r:.3f})",
+        font=dict(family=FONT_MONO, size=14, color=COL_DEEP),
+        bgcolor="rgba(255,255,255,0.82)", bordercolor=COL_BORDER,
+        borderwidth=1, borderpad=6)
+
+    fig.update_layout(**layout_base(
+        height=360, hovermode="closest", showlegend=True,
+        margin=dict(l=58, r=18, t=14, b=48),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left",
+                    x=0, font=dict(size=12, family=FONT_SANS, color=COL_MUTED)),
+        xaxis=axis_x(title="Niño costero · ICEN (anomalía °C)", zeroline=True,
+                     zerolinecolor=COL_BORDER, zerolinewidth=1),
+        yaxis=axis_y(title="ONI global · Niño 3.4 (anomalía °C)", zeroline=True,
+                     zerolinecolor=COL_BORDER, zerolinewidth=1)))
+
+    return fig.to_html(
+        include_plotlyjs=False, full_html=False, div_id="grafico-enso-r2",
+        config={"displayModeBar": False, "responsive": True})
+
+
 # ── 09c · Representación / embeddings (no supervisado, model-agnóstico) ─────────
 # Orden de métodos en el selector. Las claves de la silueta pueden venir con
 # flecha ASCII ("DTW->MDS"); se normalizan a la etiqueta con flecha unicode.
@@ -929,11 +995,13 @@ EMB_METODOS = ["PCA", "Isomap", "UMAP", "DTW→MDS"]
 
 
 def embeddings_datos(coords: pd.DataFrame, sil: dict) -> str:
-    """Empaqueta las proyecciones por método para el scatter interactivo.
+    """Empaqueta las proyecciones por método para el carrusel de scatters.
 
-    Devuelve un JSON con, por método, dos series de puntos (base / crecida) con
-    sus coordenadas x,y y textos de hover (fecha, caudal, régimen), más la
-    silueta del método. Análisis no supervisado (independiente del modelo)."""
+    Por método emite arrays PLANOS y paralelos (x, y, q, fecha, regimen,
+    temporada) para que el JS construya cualquiera de las tres coloraciones
+    (magnitud del caudal, crecida vs base, temporada) sobre el MISMO scatter.
+    Incluye la silueta (crecida/base) por método. Análisis no supervisado
+    (independiente del modelo)."""
     def sil_de(metodo: str):
         # Tolera claves con flecha ASCII o unicode.
         for k in (metodo, metodo.replace("→", "->"), metodo.replace("->", "→")):
@@ -942,27 +1010,39 @@ def embeddings_datos(coords: pd.DataFrame, sil: dict) -> str:
         return None
 
     metodos = {}
+    q_todos = []
     for met in EMB_METODOS:
-        sub = coords[coords["metodo"] == met]
+        sub = coords[coords["metodo"] == met].reset_index(drop=True)
         if sub.empty:
             continue
-        grupos = {}
-        for reg in ("base", "crecida"):
-            g = sub[sub["regimen"] == reg]
-            fechas = [d.strftime("%Y-%m-%d") for d in g["fecha"]]
-            grupos[reg] = {
-                "x": [round(float(v), 4) for v in g["x"]],
-                "y": [round(float(v), 4) for v in g["y"]],
-                "fecha": fechas,
-                "q": [round(float(v), 1) for v in g["q"]],
-            }
-        metodos[met] = {"grupos": grupos, "sil": sil_de(met)}
+        q_vals = [round(float(v), 1) for v in sub["q"]]
+        q_todos.extend(q_vals)
+        metodos[met] = {
+            "x": [round(float(v), 4) for v in sub["x"]],
+            "y": [round(float(v), 4) for v in sub["y"]],
+            "q": q_vals,
+            "fecha": [d.strftime("%Y-%m-%d") for d in sub["fecha"]],
+            "regimen": [str(v) for v in sub["regimen"]],      # base / crecida
+            "temporada": [str(v) for v in sub["temporada"]],  # humeda / seca
+            "sil": sil_de(met),
+        }
+
+    # Rango global de caudal para una escala de color continua comparable
+    # entre métodos (colorbar azul→rojo).
+    q_min = round(min(q_todos), 1) if q_todos else 0.0
+    q_max = round(max(q_todos), 1) if q_todos else 1.0
 
     cfg = {
         "metodos": metodos,
         "orden": [m for m in EMB_METODOS if m in metodos],
-        "col_base": COL_ACCENT,
-        "col_crecida": COL_CRIT,
+        "umbral": UMBRAL_Q90,
+        "q_min": q_min,
+        "q_max": q_max,
+        # Colores semánticos para los conmutadores de coloración.
+        "col_base": COL_ACCENT,       # régimen base (azul agua)
+        "col_crecida": COL_CRIT,      # régimen crecida (rojo)
+        "col_humeda": COL_DEEP,       # temporada húmeda (azul profundo)
+        "col_seca": "#D68910",        # temporada seca (ocre/aviso)
         "col_border": COL_BORDER,
         "col_surf": COL_SURF,
         "col_ink": COL_INK,
@@ -973,33 +1053,82 @@ def embeddings_datos(coords: pd.DataFrame, sil: dict) -> str:
 
 
 def bloque_embeddings(cfg_json: str) -> str:
-    """Selector de método + contenedor del scatter + etiqueta de silueta.
+    """Carrusel de métodos (flechas + puntos + teclado) + conmutador de 3
+    coloraciones + scatter Plotly compartido + silueta.
 
-    Reemplaza las figuras estáticas por un gráfico Plotly interactivo desde
-    data/embeddings_coords.csv. Model-agnóstico: análisis no supervisado que
-    muestra que la estructura de regímenes (crecida vs base) es intrínseca a
-    los datos; los métodos no lineales (Isomap) y de forma (DTW) separan mejor."""
-    opciones = "".join(
-        f'<option value="{m}">{m}</option>' for m in EMB_METODOS)
+    Reemplaza el <select> por un carrusel: cada slide es un método de proyección
+    (PCA, Isomap, UMAP, DTW→MDS) y el mismo scatter se recolorea con tres
+    esquemas —magnitud del caudal, crecida vs base (Q90) y temporada— para
+    juzgar qué estructura captura cada método. Model-agnóstico (no supervisado)."""
+    # Puntos de paginación del carrusel (uno por método presente).
+    puntos = "".join(
+        f"<button type='button' class='emb-dot{' is-active' if i == 0 else ''}'"
+        f" data-idx='{i}' aria-label='Ir a {m}'"
+        f" aria-current='{'true' if i == 0 else 'false'}'></button>"
+        for i, m in enumerate(EMB_METODOS))
+
+    # Conmutador de coloración (3 opciones tipo segmented control).
+    coloraciones = [
+        ("q", "Magnitud del caudal"),
+        ("reg", "Crecida vs base (Q90)"),
+        ("temp", "Temporada"),
+    ]
+    # Conmutador de coloración: grupo de botones tipo toggle (aria-pressed).
+    # No es un tablist real (no controla tabpanels), por eso aria-pressed.
+    botones_col = "".join(
+        f"<button type='button' class='emb-cbtn{' is-active' if i == 0 else ''}'"
+        f" aria-pressed='{'true' if i == 0 else 'false'}'"
+        f" data-color='{cid}'>{lab}</button>"
+        for i, (cid, lab) in enumerate(coloraciones))
+
     return f"""
-    <div class="emb-controls" role="group" aria-label="Selección de método de proyección">
-      <label class="fc-field">
-        <span class="fc-field-lab">Método de proyección</span>
-        <select id="emb-metodo" class="fc-select" aria-label="Método de reducción de dimensión">
-          {opciones}
-        </select>
-      </label>
-      <div class="fc-readout" aria-live="polite">
-        <span class="fc-readout-lab">Silueta (crecida vs base)</span>
-        <span id="emb-sil" class="fc-readout-val">—</span>
+    <div class="emb" aria-roledescription="carrusel"
+         aria-label="Métodos de representación (embeddings)">
+      <div class="emb-bar">
+        <div class="emb-carousel" role="group"
+             aria-label="Método de proyección (carrusel)">
+          <button type="button" class="emb-arrow emb-prev"
+                  aria-label="Método anterior">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+                 focusable="false" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 5l-7 7 7 7"/></svg></button>
+          <div class="emb-method">
+            <span class="emb-method-lab">Método de proyección</span>
+            <span class="emb-method-name" id="emb-metodo-nombre" aria-live="polite">—</span>
+          </div>
+          <button type="button" class="emb-arrow emb-next"
+                  aria-label="Método siguiente">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+                 focusable="false" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 5l7 7-7 7"/></svg></button>
+        </div>
+        <div class="fc-readout" aria-live="polite">
+          <span class="fc-readout-lab">Silueta (crecida vs base)</span>
+          <span id="emb-sil" class="fc-readout-val">—</span>
+        </div>
+      </div>
+
+      <div class="emb-color" role="group"
+           aria-label="Esquema de coloración del scatter">
+        <span class="emb-color-lab">Colorear por</span>
+        {botones_col}
+      </div>
+
+      <div id="grafico-embeddings" class="emb-plot"></div>
+
+      <div class="emb-dots" role="tablist" aria-label="Seleccionar método">
+        {puntos}
       </div>
     </div>
-    <div id="grafico-embeddings" class="emb-plot"></div>
     <p class="nota">Cada punto es una ventana temporal del caudal proyectada a 2D
-    por el método elegido; los ejes no tienen unidades físicas (son coordenadas de
-    la proyección). En <b style="color:{COL_ACCENT}">azul</b>, régimen base; en
-    <b style="color:{COL_CRIT}">rojo</b>, crecida. La <b>silueta</b> mide cuán bien
-    se separan ambos regímenes (mayor = mejor). Al ser un análisis <b>no
+    por el método del <b>carrusel</b> (use las flechas, los puntos o el teclado);
+    los ejes no tienen unidades físicas (son coordenadas de la proyección). El
+    objetivo es ver cómo se <b>agrupan</b> los datos: comparar las <b>tres
+    coloraciones</b> —magnitud del caudal, crecida vs base (Q90) y temporada—
+    ayuda a juzgar qué estructura captura cada método. La <b>silueta</b> mide cuán
+    bien se separan crecida y base (mayor = mejor). Al ser un análisis <b>no
     supervisado</b> (sin usar el modelo ni el umbral), la estructura crecida/base
     emerge como propiedad <b>intrínseca de los datos</b>: los métodos no lineales
     (Isomap) y basados en la forma temporal (DTW→MDS) la separan mejor que los
@@ -1123,16 +1252,20 @@ def _hero_hidrograma(serie: pd.DataFrame, w: int = 1280, h: int = 380) -> str:
 # ── Fuentes de datos (para la franja de logos: metadatos declarativos) ─────────
 # Cada entrada: (clave_logo, alt, nombre corto, aporte). El logo se embebe como
 # data URI si existe; si no, degrada a una etiqueta tipográfica.
-# Atribución correcta por institución de origen:
-#   · SENAMHI  → caudal observado (SNIRH) + PISCO precipitación + PISCO temp.
+# Atribución correcta por institución de origen (verificada):
+#   · ANA      → caudal observado y red hidrométrica (SNIRH).
+#   · SENAMHI / IGP → PISCOp v2.1 (precipitación) y PISCOt v1.2 (Tmax/Tmin);
+#                     extensión CHIRPS-QM (2016+).
 #   · ECMWF / Copernicus → ERA5-Land (humedad de suelo, evapotranspiración PET).
 #   · NOAA     → índices ENSO (ONI global y Niño costero, ERSSTv5). Sin logo:
 #                degrada a etiqueta tipográfica.
 FUENTES_LOGOS = [
     ("logo_ana", "ANA — Autoridad Nacional del Agua",
      "ANA", "Caudal observado y red hidrométrica (SNIRH)"),
-    ("logo_senamhi", "SENAMHI — Servicio Nacional de Meteorología e Hidrología",
-     "SENAMHI", "PISCO precipitación y temperatura · estaciones meteorológicas"),
+    ("logo_senamhi", "SENAMHI / IGP — Meteorología e Hidrología",
+     "SENAMHI · IGP",
+     "PISCOp v2.1 (precipitación) y PISCOt v1.2 (temperatura Tmax/Tmin); "
+     "extensión CHIRPS-QM (2016+)"),
     ("logo_ecmwf", "ECMWF / Copernicus — Centro Europeo de Predicción",
      "ECMWF · Copernicus",
      "ERA5-Land: humedad de suelo y evapotranspiración de referencia (PET)"),
@@ -1176,10 +1309,79 @@ def franja_fuentes(imgs: dict, variante: str = "foot") -> str:
         "</div>")
 
 
+# ── Carrusel de logos institucionales ─────────────────────────────────────────
+# (clave_logo, nombre visible, alt). Un slide por institución; el nombre va
+# debajo. Incluye UTEC (equipo) junto a las fuentes de datos. Si un logo falta,
+# el slide degrada a una etiqueta tipográfica (sin romper el carrusel).
+CARRUSEL_LOGOS = [
+    ("logo_ana", "ANA", "ANA — Autoridad Nacional del Agua"),
+    ("logo_senamhi", "SENAMHI", "SENAMHI — Meteorología e Hidrología"),
+    ("logo_ecmwf", "ECMWF · Copernicus",
+     "ECMWF / Copernicus — Centro Europeo de Predicción"),
+    ("logo_noaa", "NOAA",
+     "NOAA — National Oceanic and Atmospheric Administration"),
+    ("logo", "UTEC", "UTEC — Universidad de Ingeniería y Tecnología"),
+]
+
+
+def bloque_carrusel_logos(imgs: dict) -> str:
+    """Carrusel accesible de logos institucionales (uno por slide + nombre).
+
+    Auto-rotación suave con pausa en hover; se desactiva bajo
+    prefers-reduced-motion (lo controla el JS_LOGOS). Flechas prev/next, puntos
+    de paginación y foco por teclado. Cada slide es un botón-figura con su logo
+    (data URI) o, si falta, una etiqueta tipográfica de respaldo."""
+    slides, puntos = [], []
+    for i, (clave, nombre, alt) in enumerate(CARRUSEL_LOGOS):
+        uri = imgs.get(clave)
+        if uri:
+            logo = (f"<img class='lgc-img' src='{uri}' alt='{alt}' "
+                    f"loading='lazy'>")
+        else:
+            logo = (f"<span class='lgc-img-txt' aria-hidden='true'>"
+                    f"{nombre}</span>")
+        activo = " is-active" if i == 0 else ""
+        # aria-hidden en los slides inactivos; el activo queda expuesto.
+        slides.append(
+            f"<figure class='lgc-slide{activo}' role='group'"
+            f" aria-roledescription='slide'"
+            f" aria-label='{i+1} de {len(CARRUSEL_LOGOS)}: {nombre}'"
+            f" aria-hidden='{'false' if i == 0 else 'true'}'>"
+            f"<span class='lgc-logo-wrap'>{logo}</span>"
+            f"<figcaption class='lgc-name'>{nombre}</figcaption></figure>")
+        puntos.append(
+            f"<button type='button' class='lgc-dot{activo}' data-idx='{i}'"
+            f" aria-label='Ir a {nombre}'"
+            f" aria-current='{'true' if i == 0 else 'false'}'></button>")
+
+    return (
+        "<div class='lgc' aria-roledescription='carrusel'"
+        " aria-label='Instituciones y fuentes de datos'>"
+        "<p class='lgc-lab'>Instituciones y fuentes</p>"
+        "<div class='lgc-stage'>"
+        "<button type='button' class='lgc-arrow lgc-prev'"
+        " aria-label='Logo anterior'>"
+        "<svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'"
+        " focusable='false' fill='none' stroke='currentColor' stroke-width='2.2'"
+        " stroke-linecap='round' stroke-linejoin='round'>"
+        "<path d='M15 5l-7 7 7 7'/></svg></button>"
+        f"<div class='lgc-track' aria-live='polite'>{''.join(slides)}</div>"
+        "<button type='button' class='lgc-arrow lgc-next'"
+        " aria-label='Logo siguiente'>"
+        "<svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'"
+        " focusable='false' fill='none' stroke='currentColor' stroke-width='2.2'"
+        " stroke-linecap='round' stroke-linejoin='round'>"
+        "<path d='M9 5l7 7-7 7'/></svg></button>"
+        "</div>"
+        f"<div class='lgc-dots' role='tablist' aria-label='Seleccionar logo'>"
+        f"{''.join(puntos)}</div>"
+        "</div>")
+
+
 # ── Ensamblado del HTML final ─────────────────────────────────────────────────
 def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
-              enso_callout, embed_div, imgs, meta, serie) -> str:
+              enso_callout, enso_r2_div, embed_div, imgs, meta, serie) -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -1203,6 +1405,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
 
     strip_fuentes = franja_fuentes(imgs, "strip")
     foot_fuentes = franja_fuentes(imgs, "foot")
+    carrusel_logos = bloque_carrusel_logos(imgs)
 
     # Pestañas: (id, etiqueta). El orden define tablist y navegación.
     tabs = [
@@ -1219,12 +1422,18 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         f'data-tab="{tid}">{lab}</button>'
         for tid, lab in tabs)
 
+    # (nombre, rol, LinkedIn, [correos]). Los correos se muestran como enlaces
+    # mailto discretos; la foto (foto_N por orden) se agranda a ~120px.
     integrantes = [
-        ("Luis Alonzo Contreras Perez", "Datos, modelado y evaluación",
-         "https://www.linkedin.com/in/luis-alonzo-contreras-perez"),
+        ("Luis Alonzo Contreras Perez",
+         "Deep learning · Desarrollo del dashboard",
+         "https://www.linkedin.com/in/luis-alonzo-contreras-perez",
+         ["luis.contreras@utec.edu.pe",
+          "luis.alonzo.contreras.perez@gmail.com"]),
         ("Diego Alonso Javier Mijahuanca Quispe",
-         "Análisis exploratorio, visualización y dashboard",
-         "https://www.linkedin.com/in/diego-alonso-javier-mijahuanca-quispe-5546882aa"),
+         "Desarrollo del dashboard",
+         "https://www.linkedin.com/in/diego-alonso-javier-mijahuanca-quispe-5546882aa",
+         ["diego.mijahuanca@utec.edu.pe"]),
     ]
 
     def _iniciales(nombre: str) -> str:
@@ -1247,7 +1456,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         "1.78-1.75V1.74C24 .78 23.2 0 22.22 0z'/></svg>")
 
     filas_eq = []
-    for i, (n, r, li) in enumerate(integrantes, start=1):
+    for i, (n, r, li, correos) in enumerate(integrantes, start=1):
         foto = imgs.get(f"foto_{i}")
         if foto:
             avatar = (f"<img class='eq-foto' src='{foto}' alt='Foto de {n}' "
@@ -1255,6 +1464,9 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         else:
             avatar = (f"<span class='eq-foto eq-foto-txt' aria-hidden='true'>"
                       f"{_iniciales(n)}</span>")
+        # Correos como enlaces mailto discretos (uno por línea).
+        correos_html = "".join(
+            f"<a class='eq-mail' href='mailto:{c}'>{c}</a>" for c in correos)
         enlace_li = (
             f"<a class='eq-li' href='{li}' target='_blank' rel='noopener'"
             f" aria-label='LinkedIn de {n} (abre en una pestaña nueva)'>"
@@ -1264,6 +1476,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             f"<li class='eq-card'>{avatar}<span class='eq-text'>"
             f"<span class='eq-nombre'>{n}</span>"
             f"<span class='eq-rol'>{r}</span>"
+            f"<span class='eq-mails'>{correos_html}</span>"
             f"{enlace_li}</span></li>")
     equipo_html = "".join(filas_eq)
 
@@ -1328,6 +1541,10 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <section class="reveal" aria-label="Indicadores resumen">
         <p class="eyebrow">Cifras clave · periodo de prueba 2024–2025</p>
         {kpi_html}
+      </section>
+
+      <section class="reveal" aria-label="Instituciones y fuentes de datos">
+        {carrusel_logos}
       </section>
 
       <section class="split reveal">
@@ -1485,6 +1702,22 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       (agua): <b>+ Ambos índices</b> (NSE = 0,691), la mejor. Las demás, en gris frío.
       La aparente redundancia entre índices esconde una supresión mutua: por separado
       su efecto casi se cancela; juntos, la señal se refuerza.</p>
+
+      <section class="split reveal">
+        <div class="split-main">{enso_r2_div}</div>
+        <aside class="split-aside">
+          <p class="eyebrow">Correlación entre índices</p>
+          <h2 class="h-serif">Niño costero frente a ONI global</h2>
+          <p class="prose">Cada punto es un mes: el Niño costero (eje X) frente al
+          ONI global (eje Y). La recta de regresión y el coeficiente
+          <b>R² = 0,39 (r = 0,625)</b> cuantifican cuánto <b>comparten</b> ambos
+          índices.</p>
+          <p class="prose">Comparten menos de la mitad de su varianza: por eso
+          <b>no</b> son redundantes. Añadido a su efecto de signo opuesto sobre el
+          caudal, esto explica por qué usar <b>ambos</b> índices supera a cualquiera
+          por separado.</p>
+        </aside>
+      </section>
     </div>
   </section>
 
@@ -1554,16 +1787,21 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       {foot_fuentes}
       <ul class="fuentes">
         <li><span class="fu-k">Caudal observado</span>
-          <span class="fu-v">SENAMHI — estación {est['nombre']} (SNIRH,
-          código {est['codigo']}). Descarga: julio 2026.</span></li>
+          <span class="fu-v">ANA — caudal observado y red hidrométrica (SNIRH);
+          estación {est['nombre']}, código {est['codigo']}.</span></li>
         <li><span class="fu-k">Precipitación y temperatura</span>
-          <span class="fu-v">PISCO precipitación y PISCO temperatura (PISCOt),
-          SENAMHI. Descarga: junio 2026.</span></li>
+          <span class="fu-v">SENAMHI / IGP — <b>PISCOp v2.1</b> (precipitación) y
+          <b>PISCOt v1.2</b> (temperatura Tmax/Tmin); extensión CHIRPS-QM
+          (2016+).</span></li>
         <li><span class="fu-k">Humedad de suelo y PET</span>
-          <span class="fu-v">ERA5-Land (Copernicus / ECMWF). Descarga: junio 2026.</span></li>
+          <span class="fu-v">ECMWF / Copernicus — ERA5-Land (humedad de suelo,
+          evapotranspiración de referencia PET).</span></li>
         <li><span class="fu-k">Índices ENSO</span>
-          <span class="fu-v">ONI global y Niño costero (NOAA, ERSSTv5).
-          Descarga: junio 2026.</span></li>
+          <span class="fu-v">NOAA — ONI global y Niño costero (ERSSTv5).</span></li>
+        <li><span class="fu-k">Satélite (Google Earth Engine)</span>
+          <span class="fu-v"><b>MODIS y Landsat</b> (índices de vegetación/nieve y
+          agua) usados por <b>HydroST</b>; Sentinel-1/2 y SMAP evaluados pero
+          descartados por cobertura insuficiente.</span></li>
       </ul>
     </div>
     <div class="foot-col foot-col-about">
@@ -1888,28 +2126,39 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .foot-h::after {{ content:""; position:absolute; left:0; bottom:0;
   width:34px; height:2px; border-radius:2px;
   background:linear-gradient(90deg,var(--cyan),var(--accent)); }}
-/* Equipo: tarjetas prolijas (foto grande circular + nombre serif + rol + LinkedIn). */
+/* Equipo: tarjetas prolijas (foto grande circular + nombre serif + rol +
+   correos mailto + LinkedIn). Foto ~120px; alineación superior por el mayor
+   contenido (dos correos). */
 .equipo {{ list-style:none; padding:0; margin:0; display:flex;
   flex-direction:column; gap:14px; }}
-.eq-card {{ display:flex; align-items:center; gap:15px;
-  padding:12px 14px; border-radius:12px;
+.eq-card {{ display:flex; align-items:flex-start; gap:18px;
+  padding:16px 18px; border-radius:14px;
   background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.08);
   transition:background .18s ease, border-color .18s ease; }}
 .eq-card:hover {{ background:rgba(255,255,255,.06);
   border-color:rgba(27,168,196,.35); }}
-.eq-foto {{ width:clamp(72px,8vw,92px); height:clamp(72px,8vw,92px);
+.eq-foto {{ width:clamp(104px,9vw,120px); height:clamp(104px,9vw,120px);
   border-radius:50%; flex:none; object-fit:cover; object-position:center 22%;
   display:inline-flex; align-items:center; justify-content:center;
-  background:#0E3345; box-shadow:0 3px 12px rgba(0,0,0,.28);
-  outline:2px solid rgba(27,168,196,.42); outline-offset:2px;
-  border:2px solid #123a4e; }}
+  background:#0E3345; box-shadow:0 6px 20px rgba(0,0,0,.34);
+  outline:2px solid rgba(27,168,196,.45); outline-offset:3px;
+  border:3px solid #123a4e; }}
 .eq-foto-txt {{ font-family:var(--mono); font-weight:600;
-  font-size:clamp(20px,2.2vw,26px); color:var(--cyan); letter-spacing:.02em; }}
+  font-size:clamp(26px,3vw,34px); color:var(--cyan); letter-spacing:.02em; }}
 .eq-text {{ display:flex; flex-direction:column; min-width:0; gap:3px; }}
 .eq-nombre {{ font-family:var(--serif); color:#fff; font-weight:600;
-  font-size:15px; line-height:1.22; }}
-.eq-rol {{ color:#9DB3BF; font-size:12.5px; line-height:1.4; }}
-.eq-li {{ display:inline-flex; align-items:center; gap:6px; margin-top:5px;
+  font-size:15.5px; line-height:1.22; }}
+.eq-rol {{ color:#9DB3BF; font-size:12.5px; line-height:1.4; margin-bottom:3px; }}
+/* Correos: enlaces mailto discretos, mono, uno por línea. */
+.eq-mails {{ display:flex; flex-direction:column; gap:1px; margin-top:2px; }}
+.eq-mail {{ font-family:var(--mono); font-size:11.5px; color:#93AAB6;
+  text-decoration:none; letter-spacing:.005em; overflow-wrap:anywhere;
+  max-width:100%; transition:color .16s ease; }}
+.eq-mail:hover {{ color:#CFE0E8; text-decoration:underline;
+  text-underline-offset:2px; }}
+.eq-mail:focus-visible {{ outline:2px solid var(--cyan); outline-offset:2px;
+  border-radius:3px; }}
+.eq-li {{ display:inline-flex; align-items:center; gap:6px; margin-top:7px;
   color:var(--cyan); font-size:12.5px; font-weight:600; text-decoration:none;
   width:max-content; transition:color .16s ease; }}
 .eq-li:hover {{ color:#5FD1E6; text-decoration:underline;
@@ -1984,6 +2233,50 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   line-height:1; min-width:96px; text-align:center; }}
 .src-aporte {{ font-size:12.5px; color:#B4C6D0; line-height:1.45; }}
 
+/* ── Carrusel de logos institucionales (Resumen) ──────────────────── */
+.lgc {{ border:1px solid var(--border); border-radius:var(--radius);
+  background:linear-gradient(180deg,#FFFFFF 0%,#F4F8FA 100%);
+  box-shadow:var(--shadow-sm); padding:20px clamp(16px,2.4vw,28px) 18px; }}
+.lgc-lab {{ font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.11em; color:var(--muted); text-align:center;
+  margin:0 0 12px; }}
+.lgc-stage {{ display:flex; align-items:center; justify-content:center;
+  gap:clamp(8px,2vw,20px); }}
+.lgc-track {{ position:relative; flex:1 1 auto; height:118px;
+  display:flex; align-items:center; justify-content:center; overflow:hidden; }}
+.lgc-slide {{ position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:12px;
+  opacity:0; visibility:hidden; transform:translateX(14px);
+  transition:opacity .5s ease, transform .5s ease; pointer-events:none; }}
+.lgc-slide.is-active {{ opacity:1; visibility:visible; transform:none;
+  pointer-events:auto; }}
+.lgc-logo-wrap {{ display:inline-flex; align-items:center; justify-content:center;
+  height:66px; }}
+.lgc-img {{ max-height:66px; max-width:min(260px,60vw); width:auto; height:auto;
+  object-fit:contain; display:block; }}
+.lgc-img-txt {{ font-family:var(--mono); font-weight:600; font-size:20px;
+  color:var(--deep); letter-spacing:.03em; border:1.5px solid var(--border);
+  border-radius:9px; padding:14px 18px; line-height:1; }}
+.lgc-name {{ font-family:var(--sans); font-weight:600; font-size:13px;
+  letter-spacing:.02em; color:var(--deep); text-align:center; }}
+.lgc-arrow {{ appearance:none; flex:none; cursor:pointer;
+  width:38px; height:38px; border-radius:50%; display:inline-flex;
+  align-items:center; justify-content:center; color:var(--deep);
+  background:var(--surf); border:1.5px solid var(--border);
+  box-shadow:var(--shadow-sm);
+  transition:color .16s ease, border-color .16s ease, background .16s ease; }}
+.lgc-arrow:hover {{ color:var(--accent); border-color:#B4C4CE; background:#fff; }}
+.lgc-arrow:focus-visible {{ outline:none; border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(11,110,140,.18); }}
+.lgc-dots {{ display:flex; align-items:center; justify-content:center; gap:9px;
+  margin-top:14px; }}
+.lgc-dot {{ appearance:none; cursor:pointer; width:8px; height:8px; padding:0;
+  border-radius:50%; border:0; background:#C6D3DB;
+  transition:background .18s ease, transform .18s ease; }}
+.lgc-dot:hover {{ background:#9DB3BF; }}
+.lgc-dot.is-active {{ background:var(--accent); transform:scale(1.35); }}
+.lgc-dot:focus-visible {{ outline:2px solid var(--accent); outline-offset:3px; }}
+
 /* ── Callout editorial (hallazgo ENSO: R² + supresión mutua) ──────── */
 .callout {{ position:relative; grid-column:1;
   background:linear-gradient(180deg,#F1F7FA 0%,var(--surf) 100%);
@@ -2003,14 +2296,52 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .callout-body {{ font-size:14px; color:#33424E; line-height:1.6; }}
 .callout-body b {{ color:var(--ink); font-weight:600; }}
 
-/* ── Representación / embeddings (scatter interactivo, selector método) ── */
-.emb-controls {{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:18px;
-  margin-bottom:16px; padding:16px 18px; background:var(--surf);
+/* ── Representación / embeddings (carrusel de métodos + 3 coloraciones) ── */
+.emb-bar {{ display:flex; flex-wrap:wrap; align-items:center; gap:16px;
+  margin-bottom:12px; padding:14px 18px; background:var(--surf);
   border:1px solid var(--border); border-radius:var(--radius);
   box-shadow:var(--shadow-sm); }}
+.emb-carousel {{ display:flex; align-items:center; gap:14px; }}
+.emb-arrow {{ appearance:none; flex:none; cursor:pointer;
+  width:34px; height:34px; border-radius:50%; display:inline-flex;
+  align-items:center; justify-content:center; color:var(--deep);
+  background:var(--surf); border:1.5px solid var(--border);
+  transition:color .16s ease, border-color .16s ease, background .16s ease; }}
+.emb-arrow:hover {{ color:var(--accent); border-color:#B4C4CE; }}
+.emb-arrow:focus-visible {{ outline:none; border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(11,110,140,.18); }}
+.emb-method {{ display:flex; flex-direction:column; gap:2px; min-width:150px;
+  text-align:center; }}
+.emb-method-lab {{ font-size:10.5px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.08em; color:var(--muted); }}
+.emb-method-name {{ font-family:var(--serif); font-weight:600; font-size:1.35rem;
+  color:var(--deep); line-height:1.1; }}
+/* Conmutador de coloración (segmented control de 3 opciones). */
+.emb-color {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+  margin-bottom:14px; }}
+.emb-color-lab {{ font-size:11px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.08em; color:var(--muted); margin-right:4px; }}
+.emb-cbtn {{ appearance:none; cursor:pointer; font-family:var(--sans);
+  font-size:12.5px; font-weight:600; color:var(--muted);
+  background:var(--surf); border:1.5px solid var(--border); border-radius:999px;
+  padding:7px 15px; line-height:1.2;
+  transition:color .16s ease, border-color .16s ease, background .16s ease; }}
+.emb-cbtn:hover {{ color:var(--deep); border-color:#B4C4CE; }}
+.emb-cbtn.is-active {{ color:#fff; background:var(--accent);
+  border-color:var(--accent); }}
+.emb-cbtn:focus-visible {{ outline:none;
+  box-shadow:0 0 0 3px rgba(11,110,140,.20); }}
 .emb-plot {{ width:100%; min-height:460px; background:var(--surf);
   border:1px solid var(--border); border-radius:var(--radius);
   box-shadow:var(--shadow-sm); padding:6px 8px; }}
+.emb-dots {{ display:flex; align-items:center; justify-content:center; gap:9px;
+  margin-top:14px; }}
+.emb-dot {{ appearance:none; cursor:pointer; width:8px; height:8px; padding:0;
+  border-radius:50%; border:0; background:#C6D3DB;
+  transition:background .18s ease, transform .18s ease; }}
+.emb-dot:hover {{ background:#9DB3BF; }}
+.emb-dot.is-active {{ background:var(--accent); transform:scale(1.35); }}
+.emb-dot:focus-visible {{ outline:2px solid var(--accent); outline-offset:3px; }}
 
 /* ── Movimiento con propósito ─────────────────────────────────────── */
 /* Solo se oculta si hay JS (clase js-on en <html>); sin JS todo es visible. */
@@ -2395,11 +2726,13 @@ JS_FORECAST = """
 """
 
 
-# ── Script del scatter de embeddings interactivo (selector de método) ──────────
-# Análisis no supervisado (model-agnóstico). Reemplaza las imágenes estáticas.
-# Se redimensiona al activar la pestaña "Datos & representación" porque el div
-# nace en un panel oculto (ancho 0); JS_TABS llama Plotly.Plots.resize sobre
-# todos los .js-plotly-plot del panel, incluido éste.
+# ── Script del carrusel de embeddings (métodos) + 3 coloraciones ───────────────
+# Análisis no supervisado (model-agnóstico). Un solo scatter Plotly compartido:
+# el CARRUSEL (flechas/puntos/teclado) cambia el MÉTODO y el conmutador cambia la
+# COLORACIÓN (magnitud del caudal · crecida vs base · temporada); ambos redibujan
+# el mismo div con Plotly.react. Se redimensiona al activar la pestaña "Datos &
+# representación" (JS_TABS llama Plotly.Plots.resize sobre los .js-plotly-plot),
+# y también tras cambiar de slide (el div visible debe reajustar su ancho).
 JS_EMBED = """
 (function(){
   function run(){
@@ -2409,93 +2742,258 @@ JS_EMBED = """
     var CFG;
     try { CFG = JSON.parse(dataEl.textContent); } catch(e){ return; }
 
-    var sel = document.getElementById('emb-metodo');
+    var orden = CFG.orden || [];
+    if (!orden.length) return;
     var silEl = document.getElementById('emb-sil');
+    var nameEl = document.getElementById('emb-metodo-nombre');
+    var prevBtn = plotEl.parentNode.querySelector('.emb-prev');
+    var nextBtn = plotEl.parentNode.querySelector('.emb-next');
+    var dots = Array.prototype.slice.call(
+      plotEl.parentNode.querySelectorAll('.emb-dot'));
+    var cbtns = Array.prototype.slice.call(
+      plotEl.parentNode.querySelectorAll('.emb-cbtn'));
     var reduce = window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var FS = 'IBM Plex Sans, -apple-system, Segoe UI, sans-serif';
     var FM = 'IBM Plex Mono, SFMono-Regular, Consolas, monospace';
+
+    var idx = 0;                 // método actual (índice en CFG.orden)
+    var colorMode = 'q';         // 'q' | 'reg' | 'temp'
 
     function toRGBA(hex, a){
       var h = hex.replace('#',''); if (h.length===3){ h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; }
       var n = parseInt(h,16);
       return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';
     }
+    // Escala continua azul→rojo para la magnitud del caudal (paleta del proyecto).
+    var SCALE_Q = [[0,'#1BA8C4'],[0.3,'#0B6E8C'],[0.6,'#8FA0AC'],
+                   [0.8,'#D68910'],[1,'#C0392B']];
 
-    function hoverText(g, reg){
-      var t = [];
-      for (var i=0;i<g.fecha.length;i++){
-        t.push(g.fecha[i] + '<br>Caudal: ' + g.q[i].toFixed(1) +
-          ' m³/s<br>Régimen: ' + reg);
+    function hoverText(d, i){
+      return d.fecha[i] + '<br>Caudal: ' + d.q[i].toFixed(1) +
+        ' m³/s<br>Régimen: ' + d.regimen[i] + '<br>Temporada: ' + d.temporada[i];
+    }
+
+    // Divide los índices de un método según una clave ('regimen'/'temporada').
+    function split(d, campo, valor){
+      var xs=[], ys=[], tx=[];
+      for (var i=0;i<d.x.length;i++){
+        if (d[campo][i] === valor){ xs.push(d.x[i]); ys.push(d.y[i]);
+          tx.push(hoverText(d,i)); }
       }
-      return t;
+      return { x:xs, y:ys, text:tx };
     }
 
-    function tracesFor(met){
-      var d = CFG.metodos[met];
-      if (!d) return [];
-      var b = d.grupos.base, c = d.grupos.crecida;
-      var out = [];
-      // Base primero (debajo); crecida encima, más grande y opaca.
-      out.push({ x:b.x, y:b.y, mode:'markers', type:'scattergl',
-        name:'Base', text:hoverText(b,'base'), hoverinfo:'text',
-        marker:{ color:toRGBA(CFG.col_base,0.42), size:5,
-          line:{width:0} } });
-      out.push({ x:c.x, y:c.y, mode:'markers', type:'scattergl',
-        name:'Crecida', text:hoverText(c,'crecida'), hoverinfo:'text',
-        marker:{ color:toRGBA(CFG.col_crecida,0.80), size:7.5,
-          line:{width:0.5, color:'#fff'} } });
-      return out;
+    // Trazas para el método `d` según la coloración activa.
+    function tracesFor(d){
+      if (colorMode === 'q'){
+        // (a) Magnitud del caudal: un solo scatter con color continuo + colorbar.
+        var tx = [];
+        for (var i=0;i<d.x.length;i++){ tx.push(hoverText(d,i)); }
+        return [{ x:d.x, y:d.y, mode:'markers', type:'scattergl',
+          name:'Caudal', text:tx, hoverinfo:'text', showlegend:false,
+          marker:{ color:d.q, colorscale:SCALE_Q, cmin:CFG.q_min, cmax:CFG.q_max,
+            size:6, opacity:0.82, line:{width:0},
+            colorbar:{ title:{text:'Caudal<br>(m³/s)', side:'right',
+                font:{family:FS, size:11, color:CFG.col_muted}},
+              thickness:12, len:0.82, x:1.015, xpad:2,
+              tickfont:{family:FM, size:10, color:CFG.col_muted},
+              outlinewidth:0 } } }];
+      }
+      if (colorMode === 'reg'){
+        // (b) Crecida vs base (Q90): base azul (debajo), crecida rojo (encima).
+        var b = split(d,'regimen','base'), c = split(d,'regimen','crecida');
+        return [
+          { x:b.x, y:b.y, mode:'markers', type:'scattergl', name:'Base',
+            text:b.text, hoverinfo:'text',
+            marker:{ color:toRGBA(CFG.col_base,0.42), size:5, line:{width:0} } },
+          { x:c.x, y:c.y, mode:'markers', type:'scattergl', name:'Crecida',
+            text:c.text, hoverinfo:'text',
+            marker:{ color:toRGBA(CFG.col_crecida,0.82), size:7.5,
+              line:{width:0.5, color:'#fff'} } }
+        ];
+      }
+      // (c) Temporada: húmeda vs seca (dos colores).
+      var h = split(d,'temporada','humeda'), s = split(d,'temporada','seca');
+      return [
+        { x:s.x, y:s.y, mode:'markers', type:'scattergl', name:'Seca',
+          text:s.text, hoverinfo:'text',
+          marker:{ color:toRGBA(CFG.col_seca,0.62), size:5.5, line:{width:0} } },
+        { x:h.x, y:h.y, mode:'markers', type:'scattergl', name:'Húmeda',
+          text:h.text, hoverinfo:'text',
+          marker:{ color:toRGBA(CFG.col_humeda,0.62), size:5.5, line:{width:0} } }
+      ];
     }
 
-    var layout = {
-      height:460, hovermode:'closest',
-      margin:{l:48,r:16,t:10,b:44},
-      font:{family:FS, size:13, color:CFG.col_ink},
-      paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
-      legend:{orientation:'h', yanchor:'bottom', y:1.02, xanchor:'left', x:0,
-        font:{size:12, family:FS, color:CFG.col_muted}},
-      hoverlabel:{bgcolor:CFG.col_surf, bordercolor:CFG.col_border,
-        font:{family:FM, size:12, color:CFG.col_ink}},
-      xaxis:{ title:{text:'Componente 1 (proyección, sin unidades)',
-          font:{family:FS, size:11.5, color:CFG.col_muted}},
-        gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
-        tickfont:{family:FM, size:10, color:CFG.col_muted},
-        showticklabels:true },
-      yaxis:{ title:{text:'Componente 2 (proyección, sin unidades)',
-          font:{family:FS, size:11.5, color:CFG.col_muted}},
-        gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
-        tickfont:{family:FM, size:10, color:CFG.col_muted},
-        showticklabels:true, scaleanchor:'x', scaleratio:1 },
-      modebar:{bgcolor:'rgba(0,0,0,0)', color:CFG.col_muted,
-        activecolor:CFG.col_base},
-      transition:{duration: reduce ? 0 : 300, easing:'cubic-in-out'}
-    };
+    function layoutFor(){
+      var showleg = (colorMode !== 'q');
+      return {
+        height:460, hovermode:'closest',
+        margin:{l:48, r: (colorMode==='q'? 78 : 16), t:10, b:44},
+        font:{family:FS, size:13, color:CFG.col_ink},
+        paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+        showlegend:showleg,
+        legend:{orientation:'h', yanchor:'bottom', y:1.02, xanchor:'left', x:0,
+          font:{size:12, family:FS, color:CFG.col_muted}},
+        hoverlabel:{bgcolor:CFG.col_surf, bordercolor:CFG.col_border,
+          font:{family:FM, size:12, color:CFG.col_ink}},
+        xaxis:{ title:{text:'Componente 1 (proyección, sin unidades)',
+            font:{family:FS, size:11.5, color:CFG.col_muted}},
+          gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
+          tickfont:{family:FM, size:10, color:CFG.col_muted},
+          showticklabels:true },
+        yaxis:{ title:{text:'Componente 2 (proyección, sin unidades)',
+            font:{family:FS, size:11.5, color:CFG.col_muted}},
+          gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
+          tickfont:{family:FM, size:10, color:CFG.col_muted},
+          showticklabels:true, scaleanchor:'x', scaleratio:1 },
+        modebar:{bgcolor:'rgba(0,0,0,0)', color:CFG.col_muted,
+          activecolor:CFG.col_base},
+        transition:{duration: reduce ? 0 : 300, easing:'cubic-in-out'}
+      };
+    }
+
     var config = { displayModeBar:true, displaylogo:false, responsive:true,
       modeBarButtonsToRemove:['lasso2d','select2d'] };
     var dibujado = false;
 
-    function actualizarSil(met){
+    function metActual(){ return orden[idx]; }
+
+    function actualizarUI(){
+      var met = metActual();
       var d = CFG.metodos[met];
+      if (nameEl) nameEl.textContent = met;
       if (silEl){ silEl.textContent = (d && d.sil !== null && d.sil !== undefined)
         ? d.sil.toFixed(3) : '—'; }
+      dots.forEach(function(dot, k){
+        var on = (k === idx);
+        dot.classList.toggle('is-active', on);
+        dot.setAttribute('aria-current', on ? 'true' : 'false');
+      });
+      cbtns.forEach(function(btn){
+        var on = (btn.getAttribute('data-color') === colorMode);
+        btn.classList.toggle('is-active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
     }
 
     function render(){
-      var met = sel.value;
-      if (!CFG.metodos[met]){
-        // Cae al primer método disponible si el elegido no tiene datos.
-        met = CFG.orden[0]; sel.value = met;
-      }
-      var traces = tracesFor(met);
+      var d = CFG.metodos[metActual()];
+      if (!d) return;
+      var traces = tracesFor(d);
+      var layout = layoutFor();
       if (!dibujado){ Plotly.newPlot(plotEl, traces, layout, config);
         dibujado = true; }
       else { Plotly.react(plotEl, traces, layout, config); }
-      actualizarSil(met);
+      actualizarUI();
+      // Reajusta el ancho del div visible tras cambiar de slide/coloración.
+      requestAnimationFrame(function(){
+        try { Plotly.Plots.resize(plotEl); } catch(e){}
+      });
+    }
+
+    function irA(i){ idx = (i + orden.length) % orden.length; render(); }
+
+    if (prevBtn) prevBtn.addEventListener('click', function(){ irA(idx-1); });
+    if (nextBtn) nextBtn.addEventListener('click', function(){ irA(idx+1); });
+    dots.forEach(function(dot){
+      dot.addEventListener('click', function(){
+        var i = parseInt(dot.getAttribute('data-idx'),10) || 0;
+        if (i < orden.length) irA(i);
+      });
+    });
+    cbtns.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        colorMode = btn.getAttribute('data-color') || 'q';
+        render();
+      });
+    });
+
+    // Teclado: flechas cambian de método cuando el foco está en el carrusel.
+    var carousel = plotEl.parentNode.querySelector('.emb-carousel');
+    if (carousel){
+      carousel.addEventListener('keydown', function(e){
+        if (e.key === 'ArrowLeft'){ e.preventDefault(); irA(idx-1);
+          if (prevBtn) prevBtn.focus(); }
+        else if (e.key === 'ArrowRight'){ e.preventDefault(); irA(idx+1);
+          if (nextBtn) nextBtn.focus(); }
+      });
     }
 
     render();
-    sel.addEventListener('change', render);
+  }
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
+"""
+
+
+# ── Script del carrusel de logos institucionales ──────────────────────────────
+# Auto-rotación suave (pausa en hover/foco); se DESACTIVA bajo
+# prefers-reduced-motion. Flechas prev/next, puntos y navegación por teclado.
+JS_LOGOS = """
+(function(){
+  function run(){
+    var root = document.querySelector('.lgc');
+    if (!root) return;
+    var slides = Array.prototype.slice.call(root.querySelectorAll('.lgc-slide'));
+    var dots = Array.prototype.slice.call(root.querySelectorAll('.lgc-dot'));
+    if (!slides.length) return;
+    var prev = root.querySelector('.lgc-prev');
+    var next = root.querySelector('.lgc-next');
+    var reduce = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var idx = 0, timer = null;
+    var DELAY = 4200;
+
+    function show(i){
+      idx = (i + slides.length) % slides.length;
+      slides.forEach(function(s, k){
+        var on = (k === idx);
+        s.classList.toggle('is-active', on);
+        s.setAttribute('aria-hidden', on ? 'false' : 'true');
+      });
+      dots.forEach(function(d, k){
+        var on = (k === idx);
+        d.classList.toggle('is-active', on);
+        d.setAttribute('aria-current', on ? 'true' : 'false');
+      });
+    }
+    function go(delta){ show(idx + delta); }
+
+    function stop(){ if (timer){ clearInterval(timer); timer = null; } }
+    function start(){
+      if (reduce) return;              // respeta prefers-reduced-motion
+      stop();
+      timer = setInterval(function(){ go(1); }, DELAY);
+    }
+    // Reinicia el temporizador tras una interacción manual (mejor UX).
+    function bump(){ if (!reduce){ start(); } }
+
+    if (prev) prev.addEventListener('click', function(){ go(-1); bump(); });
+    if (next) next.addEventListener('click', function(){ go(1); bump(); });
+    dots.forEach(function(d){
+      d.addEventListener('click', function(){
+        var i = parseInt(d.getAttribute('data-idx'), 10) || 0;
+        show(i); bump();
+      });
+    });
+
+    // Teclado: flechas cuando el foco está dentro del carrusel.
+    root.addEventListener('keydown', function(e){
+      if (e.key === 'ArrowLeft'){ e.preventDefault(); go(-1); bump(); }
+      else if (e.key === 'ArrowRight'){ e.preventDefault(); go(1); bump(); }
+    });
+
+    // Pausa en hover y mientras el foco esté dentro; reanuda al salir.
+    root.addEventListener('mouseenter', stop);
+    root.addEventListener('mouseleave', start);
+    root.addEventListener('focusin', stop);
+    root.addEventListener('focusout', start);
+
+    show(0);
+    start();
   }
   if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', run);
@@ -2525,12 +3023,13 @@ def main():
     eda_div = construir_eda(acf, ccf)
     enso_abl_div = construir_enso_ablacion(enso_abl)
     enso_callout = bloque_enso_callout(enso_extra)
+    enso_r2_div = construir_enso_r2(enso, enso_extra)
     cfg_embed = embeddings_datos(emb_coords, emb_sil)
     embed_div = bloque_embeddings(cfg_embed)
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
-                       enso_callout, embed_div, imgs, meta, serie)
+                       enso_callout, enso_r2_div, embed_div, imgs, meta, serie)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
@@ -2551,6 +3050,7 @@ def main():
 <script>{JS_TABS}</script>
 <script>{JS_FORECAST}</script>
 <script>{JS_EMBED}</script>
+<script>{JS_LOGOS}</script>
 </body>
 </html>
 """
