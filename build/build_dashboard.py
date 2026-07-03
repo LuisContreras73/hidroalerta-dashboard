@@ -152,8 +152,14 @@ def cargar():
     # bounds de la cuenca, meses, y por variable {vmin,vmax,unidad,cmap,label}.
     clima_meta = json.loads(
         (DATA / "clima_meta.json").read_text(encoding="utf-8"))
+    # Datos curados para el mapa de la Resumen: estaciones (meteo/hidro con
+    # climatología mensual), lagunas y red de drenaje (ríos).
+    map_est = json.loads(
+        (DATA / "map_estaciones.json").read_text(encoding="utf-8"))
+    rios = json.loads((DATA / "rios.geojson").read_text(encoding="utf-8"))
     return (serie, metr, meta, subs, lim, fcast, mens, enso, acf, ccf,
-            estaciones, enso_abl, enso_extra, emb_coords, emb_sil, clima_meta)
+            estaciones, enso_abl, enso_extra, emb_coords, emb_sil, clima_meta,
+            map_est, rios)
 
 
 # ── Recursos gráficos (imágenes) → data URI, con degradación tipográfica ──────
@@ -236,8 +242,114 @@ def tramos_sin_aforo(serie: pd.DataFrame):
 
 
 # ── Mapa Folium ──────────────────────────────────────────────────────────────
-def construir_mapa(meta, subs, lim, estaciones) -> str:
+# Iniciales de los 12 meses (para el eje x de los mini-gráficos de los popups).
+INICIALES_MES = ["E", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
+
+
+def _svg_barras(valores, color, unidad):
+    """Devuelve un mini-gráfico de barras SVG (~230×90 px) de 12 valores mensuales.
+
+    · Escala las barras a su máximo; línea base; iniciales de mes bajo cada barra;
+      etiqueta pequeña con el valor máximo. Trata None/null como 0 (barra ausente).
+    · Autocontenido (inline en el popup de folium): sin dependencias externas.
+    """
+    # Sanea la entrada: None/NaN → None (se dibuja como hueco, no como 0 real).
+    vals = []
+    for v in (valores or [])[:12]:
+        try:
+            f = float(v)
+            vals.append(None if (f != f) else f)   # descarta NaN
+        except (TypeError, ValueError):
+            vals.append(None)
+    while len(vals) < 12:
+        vals.append(None)
+
+    W, H = 230, 90
+    pad_l, pad_r, pad_t, pad_b = 6, 6, 12, 16      # márgenes internos
+    plot_w = W - pad_l - pad_r
+    plot_h = H - pad_t - pad_b
+    base_y = pad_t + plot_h                          # línea base (y del cero)
+    n = 12
+    slot = plot_w / n
+    bw = slot * 0.66                                 # ancho de barra
+    finite = [v for v in vals if v is not None]
+    vmax = max(finite) if finite else 0.0
+    i_max = max(range(n), key=lambda i: (vals[i] if vals[i] is not None else -1))
+
+    barras = []
+    for i, v in enumerate(vals):
+        cx = pad_l + slot * i + (slot - bw) / 2
+        if v is None or vmax <= 0:
+            h = 0.0
+        else:
+            h = max(1.0, (v / vmax) * plot_h)
+        y = base_y - h
+        op = "1" if i == i_max else "0.72"
+        barras.append(
+            f"<rect x='{cx:.1f}' y='{y:.1f}' width='{bw:.1f}' height='{h:.1f}' "
+            f"rx='1' fill='{color}' fill-opacity='{op}'/>")
+        # inicial del mes bajo cada barra
+        barras.append(
+            f"<text x='{cx + bw/2:.1f}' y='{base_y + 11:.1f}' text-anchor='middle' "
+            f"font-size='8' fill='#5B6B78' "
+            f"font-family='IBM Plex Mono,monospace'>{INICIALES_MES[i]}</text>")
+
+    # Etiqueta del valor máximo, sobre su barra (o al centro si no hay datos).
+    if finite:
+        cxm = pad_l + slot * i_max + slot / 2
+        etq = f"{vmax:.0f}" if vmax >= 10 else f"{vmax:.1f}"
+        # Alinea la etiqueta para que no se salga por los bordes.
+        anchor = "middle"
+        if i_max <= 1:
+            anchor, cxm = "start", pad_l + slot * i_max + 1
+        elif i_max >= n - 2:
+            anchor, cxm = "end", pad_l + slot * i_max + slot - 1
+        etiqueta_max = (
+            f"<text x='{cxm:.1f}' y='{pad_t - 3:.1f}' text-anchor='{anchor}' "
+            f"font-size='9' font-weight='600' fill='{color}' "
+            f"font-family='IBM Plex Mono,monospace'>{etq} {unidad}</text>")
+    else:
+        etiqueta_max = (
+            f"<text x='{W/2:.1f}' y='{H/2:.1f}' text-anchor='middle' font-size='9' "
+            f"fill='#5B6B78' font-family='IBM Plex Sans,system-ui'>sin datos</text>")
+
+    return (
+        f"<svg width='{W}' height='{H}' viewBox='0 0 {W} {H}' "
+        f"xmlns='http://www.w3.org/2000/svg' style='display:block'>"
+        f"{etiqueta_max}{''.join(barras)}"
+        f"<line x1='{pad_l}' y1='{base_y:.1f}' x2='{W - pad_r}' y2='{base_y:.1f}' "
+        f"stroke='#E2E8EE' stroke-width='1'/>"
+        f"</svg>")
+
+
+def _dot_icon(color, size=14, ring="#FFFFFF", inner=None):
+    """DivIcon de un punto con halo blanco (legible sobre satélite)."""
+    inner = inner or color
+    d = size
+    html = (
+        f"<div style='width:{d}px;height:{d}px;border-radius:50%;"
+        f"background:{inner};border:2.5px solid {ring};"
+        f"box-shadow:0 0 0 1px rgba(10,61,84,.35),0 1px 3px rgba(0,0,0,.4)'></div>")
+    return folium.DivIcon(html=html, icon_size=(d + 6, d + 6),
+                          icon_anchor=((d + 6) // 2, (d + 6) // 2))
+
+
+def _drop_icon(color, ring="#FFFFFF"):
+    """DivIcon en forma de gota (estaciones meteorológicas)."""
+    html = (
+        f"<div style='width:14px;height:14px;background:{color};"
+        f"border:2px solid {ring};border-radius:50% 50% 50% 0;"
+        f"transform:rotate(-45deg);"
+        f"box-shadow:0 0 0 1px rgba(10,61,84,.35),0 1px 3px rgba(0,0,0,.4)'></div>")
+    return folium.DivIcon(html=html, icon_size=(20, 20), icon_anchor=(10, 16))
+
+
+def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
+    """Mapa Folium de la cuenca (Resumen): subcuencas por elevación, red de ríos,
+    estaciones meteo/hidro con climatología mensual (SVG en popup), lagunas, y
+    control de capas colapsable. Se devuelve como HTML autocontenido (srcdoc)."""
     est = meta["estacion"]
+    meses = map_est.get("meses", INICIALES_MES)
     # Sin basemap inicial: la capa base activa por defecto se controla por el
     # ORDEN de los TileLayer (el primero añadido con show=True es el que se ve
     # al cargar). Se añade Esri satélite primero → base por defecto.
@@ -247,18 +359,16 @@ def construir_mapa(meta, subs, lim, estaciones) -> str:
         tiles=None,
         control_scale=True,
     )
-    # Capa base por defecto: Esri World Imagery (satélite).
+    # ── Capas base (toggleables) ────────────────────────────────────────────
+    # Por defecto: Esri World Imagery (satélite). Alternativa clara: Positron.
     folium.TileLayer(
         "Esri.WorldImagery", name="Satélite (Esri)", control=True, show=True,
         attr="Tiles © Esri").add_to(m)
-    # Alternativas claras (callejero/positron), disponibles en el control.
     folium.TileLayer(
-        "CartoDB positron", name="CartoDB Positron (claro)", control=True,
+        "CartoDB positron", name="Mapa claro (CartoDB Positron)", control=True,
         show=False).add_to(m)
-    folium.TileLayer(
-        "OpenStreetMap", name="OpenStreetMap", control=True, show=False).add_to(m)
 
-    # Límite de cuenca
+    # Límite de cuenca (contorno, no interactivo).
     folium.GeoJson(
         lim,
         name="Límite de cuenca",
@@ -267,6 +377,7 @@ def construir_mapa(meta, subs, lim, estaciones) -> str:
             "dashArray": "6,4",
         },
         interactive=False,
+        control=False,
     ).add_to(m)
 
     # Color por elevación (costa → cabecera) — rampa de la paleta del proyecto:
@@ -280,7 +391,8 @@ def construir_mapa(meta, subs, lim, estaciones) -> str:
             return COL_ACCENT    # agua
         return COL_DEEP          # profundo (cabecera andina)
 
-    grp_sub = folium.FeatureGroup(name="Subcuencas (9)", show=True)
+    # ── Capa: Subcuencas (polígonos por elevación) ──────────────────────────
+    grp_sub = folium.FeatureGroup(name="Subcuencas", show=True)
     for feat in subs["features"]:
         p = feat["properties"]
         outlet_line = (
@@ -300,9 +412,9 @@ def construir_mapa(meta, subs, lim, estaciones) -> str:
             feat,
             style_function=lambda _f, e=p["elev_m"]: {
                 "fillColor": color_elev(e), "color": "#FFFFFF",
-                "weight": 1.1, "fillOpacity": 0.72,
+                "weight": 1.0, "fillOpacity": 0.55,
             },
-            highlight_function=lambda _f: {"weight": 2.4, "fillOpacity": 0.88,
+            highlight_function=lambda _f: {"weight": 2.2, "fillOpacity": 0.74,
                                            "color": COL_DEEP},
             tooltip=folium.Tooltip(
                 f"<b>{p['nombre']}</b> · {p['elev_m']:,} m"),
@@ -314,7 +426,7 @@ def construir_mapa(meta, subs, lim, estaciones) -> str:
             icon=folium.DivIcon(
                 html=(
                     f"<div style='font-family:IBM Plex Sans,system-ui;"
-                    f"font-size:11px;font-weight:600;color:{COL_INK};"
+                    f"font-size:11px;font-weight:600;color:#0C1E2A;"
                     f"text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;"
                     f"white-space:nowrap'>{p['nombre']}</div>"),
                 icon_size=(0, 0), icon_anchor=(0, 0),
@@ -322,64 +434,160 @@ def construir_mapa(meta, subs, lim, estaciones) -> str:
         ).add_to(grp_sub)
     grp_sub.add_to(m)
 
-    # ── Estaciones de monitoreo (estaciones.csv) ────────────────────────────
-    # Dos categorías diferenciadas por tipo:
-    #   · aforo         — caudal observado (SENAMHI/ANA, SNIRH). Gota azul agua.
-    #   · meteorologica — precipitación/estado (SENAMHI). Nube naranja (aviso).
-    grp_aforo = folium.FeatureGroup(name="Estaciones de aforo (SNIRH)", show=True)
-    grp_meteo = folium.FeatureGroup(name="Estaciones meteorológicas (SENAMHI)",
-                                    show=True)
+    # ── Capa: Ríos y cauces (red de drenaje) ────────────────────────────────
+    # Un solo GeoJson con style_function por feature (main → más grueso). Es más
+    # ligero que crear miles de PolyLine individuales.
+    grp_rios = folium.FeatureGroup(name="Ríos y cauces", show=True)
 
-    def _popup_est(r, titulo, color):
-        return folium.Popup(
-            f"<div style='font-family:IBM Plex Sans,system-ui;font-size:13px;"
-            f"min-width:200px'>"
-            f"<b style='color:{color}'>{titulo}</b><br>"
-            f"<b>{r['nombre']}</b><br>"
-            f"<span style='color:{COL_MUTED}'>Código:</span> {r['codigo']}<br>"
-            f"<span style='color:{COL_MUTED}'>Descripción:</span> {r['desc']}<br>"
-            f"<span style='color:{COL_MUTED}'>Coord.:</span> {r['lat']}, {r['lon']}"
-            f"</div>",
-            max_width=300,
-        )
+    def _estilo_rio(feat):
+        pr = feat.get("properties", {}) or {}
+        if pr.get("main"):
+            return {"color": "#1BA8C4", "weight": 3.2, "opacity": 0.95}
+        w = pr.get("w", 0.5) or 0.5
+        return {"color": "#3FA9C4", "weight": 0.6 + 1.6 * float(w),
+                "opacity": 0.72}
 
-    for _, r in estaciones.iterrows():
-        if str(r["tipo"]).strip().lower() == "aforo":
-            # Gota azul agua + halo, sobre el basemap claro.
-            folium.Marker(
-                [r["lat"], r["lon"]],
-                icon=folium.Icon(color="cadetblue", icon="tint", prefix="fa"),
-                tooltip=f"Aforo · {r['nombre']}",
-                popup=_popup_est(r, "Estación de aforo (caudal)", COL_ACCENT),
-            ).add_to(grp_aforo)
-            folium.CircleMarker(
-                [r["lat"], r["lon"]], radius=13, color=COL_ACCENT,
-                fill=False, weight=2, opacity=0.85,
-            ).add_to(grp_aforo)
-        else:
-            # Meteorológica: marcador de aviso (naranja) con icono de lluvia.
-            folium.Marker(
-                [r["lat"], r["lon"]],
-                icon=folium.Icon(color="orange", icon="cloud-showers-heavy",
-                                 prefix="fa"),
-                tooltip=f"Meteorológica · {r['nombre']}",
-                popup=_popup_est(r, "Estación meteorológica (lluvia)", COL_WARN),
-            ).add_to(grp_meteo)
+    folium.GeoJson(
+        rios,
+        style_function=_estilo_rio,
+        smooth_factor=1.2,
+        interactive=False,
+    ).add_to(grp_rios)
+    grp_rios.add_to(m)
 
-    grp_aforo.add_to(m)
+    # ── Capa: Estaciones meteorológicas (9) — gota naranja, climatología PP ──
+    grp_meteo = folium.FeatureGroup(name="Estaciones meteorológicas", show=True)
+    for e in map_est.get("meteo", []):
+        svg = _svg_barras(e.get("pr_mes"), "#2E6E9E", "mm")
+        pr_anual = e.get("pr_anual")
+        pr_txt = f"{pr_anual:,.0f} mm".replace(",", " ") if pr_anual is not None else "—"
+        html = (
+            f"<div style='font-family:IBM Plex Sans,system-ui;font-size:12.5px;"
+            f"min-width:236px;color:#0C1E2A'>"
+            f"<b style='color:{COL_WARN}'>Estación meteorológica</b><br>"
+            f"<b style='font-size:14px'>{e['nombre']}</b><br>"
+            f"<span style='color:{COL_MUTED}'>Altitud:</span> "
+            f"{e['alt']:,} m &nbsp;·&nbsp; "
+            f"<span style='color:{COL_MUTED}'>Período:</span> {e['periodo']}<br>"
+            f"<span style='color:{COL_MUTED}'>Precipitación anual:</span> "
+            f"<b>{pr_txt}</b>"
+            f"<div style='margin-top:6px;padding-top:4px;"
+            f"border-top:1px solid {COL_BORDER}'>"
+            f"<span style='color:{COL_MUTED};font-size:11px'>Precipitación media "
+            f"mensual (mm)</span>{svg}</div>"
+            f"</div>")
+        folium.Marker(
+            [e["lat"], e["lon"]],
+            icon=_drop_icon(COL_WARN),
+            tooltip=f"Meteorológica · {e['nombre']}",
+            popup=folium.Popup(html, max_width=280),
+        ).add_to(grp_meteo)
     grp_meteo.add_to(m)
+
+    # ── Capa: Estaciones hidrométricas (4) — punto azul; outlet destacado ────
+    grp_hidro = folium.FeatureGroup(name="Estaciones hidrométricas", show=True)
+    cod_outlet = est.get("codigo")   # 47E214D2 = Santo Domingo (salida)
+    for h in map_est.get("hidro", []):
+        es_outlet = (h.get("codigo") == cod_outlet)
+        color = COL_CRIT if es_outlet else COL_ACCENT
+        svg = _svg_barras(h.get("q_mes"), color, "m³/s")
+        alt = h.get("alt")
+        alt_txt = f"{alt:,} m".replace(",", " ") if alt is not None else "—"
+        etiqueta_tipo = ("Estación hidrométrica · salida de cuenca"
+                         if es_outlet else "Estación hidrométrica")
+        html = (
+            f"<div style='font-family:IBM Plex Sans,system-ui;font-size:12.5px;"
+            f"min-width:236px;color:#0C1E2A'>"
+            f"<b style='color:{color}'>{etiqueta_tipo}</b><br>"
+            f"<b style='font-size:14px'>{h['nombre']}</b><br>"
+            f"<span style='color:{COL_MUTED}'>Código:</span> {h['codigo']} "
+            f"&nbsp;·&nbsp; <span style='color:{COL_MUTED}'>Tipo:</span> {h['tipo']}<br>"
+            f"<span style='color:{COL_MUTED}'>Altitud:</span> {alt_txt} "
+            f"&nbsp;·&nbsp; <span style='color:{COL_MUTED}'>Período:</span> "
+            f"{h['periodo']}<br>"
+            f"<span style='color:{COL_MUTED}'>Q medio:</span> "
+            f"<b>{h['q_medio']:.1f}</b> m³/s &nbsp;·&nbsp; "
+            f"<span style='color:{COL_MUTED}'>Q máx:</span> "
+            f"<b>{h['q_max']:.1f}</b> m³/s"
+            f"<div style='margin-top:6px;padding-top:4px;"
+            f"border-top:1px solid {COL_BORDER}'>"
+            f"<span style='color:{COL_MUTED};font-size:11px'>Caudal medio "
+            f"mensual (m³/s)</span>{svg}</div>"
+            f"</div>")
+        tip = (f"Hidrométrica · {h['nombre']} (salida)" if es_outlet
+               else f"Hidrométrica · {h['nombre']}")
+        size = 17 if es_outlet else 13
+        folium.Marker(
+            [h["lat"], h["lon"]],
+            icon=_dot_icon(color, size=size),
+            tooltip=tip,
+            popup=folium.Popup(html, max_width=280),
+            z_index_offset=1000 if es_outlet else 0,
+        ).add_to(grp_hidro)
+    grp_hidro.add_to(m)
+
+    # ── Capa: Cuerpos de agua (lagunas) — CircleMarker por área ──────────────
+    # verificada=True → cian sólido; verificada=False → tono claro + trazo
+    # discontinuo y sufijo «(probable)» (honestidad sobre la incertidumbre).
+    grp_lag = folium.FeatureGroup(name="Cuerpos de agua", show=True)
+    for lg in map_est.get("lagunas", []):
+        area = lg.get("area", 0) or 0
+        verif = bool(lg.get("verificada"))
+        nombre = lg["nombre"]
+        if not verif and "probable" not in nombre.lower():
+            nombre = f"{nombre} (probable)"
+        radio = max(5.0, min(14.0, 5.0 + (area ** 0.5) * 9.0))
+        estado = ("Verificada" if verif else "No verificada")
+        html = (
+            f"<div style='font-family:IBM Plex Sans,system-ui;font-size:12.5px;"
+            f"min-width:190px;color:#0C1E2A'>"
+            f"<b style='color:{COL_CYAN}'>Cuerpo de agua</b><br>"
+            f"<b>{nombre}</b><br>"
+            f"<span style='color:{COL_MUTED}'>Tipo:</span> {lg.get('tipo','—')}<br>"
+            f"<span style='color:{COL_MUTED}'>Elevación:</span> "
+            f"{lg.get('elev','—'):,} m<br>"
+            f"<span style='color:{COL_MUTED}'>Área:</span> {area:g} km²<br>"
+            f"<span style='color:{COL_MUTED}'>Estado:</span> {estado}"
+            f"</div>")
+        if verif:
+            estilo = dict(color=COL_CYAN, fill=True, fill_color=COL_CYAN,
+                          fill_opacity=0.72, weight=2)
+        else:
+            estilo = dict(color="#7FD3E3", fill=True, fill_color="#BFE7F0",
+                          fill_opacity=0.35, weight=1.6, dash_array="4,3")
+        folium.CircleMarker(
+            [lg["lat"], lg["lon"]], radius=radio,
+            tooltip=nombre,
+            popup=folium.Popup(html, max_width=240),
+            **estilo,
+        ).add_to(grp_lag)
+    grp_lag.add_to(m)
 
     Fullscreen(title="Pantalla completa",
                title_cancel="Salir", position="topleft").add_to(m)
     folium.LayerControl(collapsed=True, position="topright").add_to(m)
 
-    # Leyenda de elevación + estaciones (paleta del proyecto, tipografía coherente)
+    # Ajusta el encuadre al límite de la cuenca, ampliado para no recortar
+    # ninguna estación/laguna que caiga fuera del contorno.
+    try:
+        (s, w), (n, e) = folium.GeoJson(lim).get_bounds()
+        pts = ([(p["lat"], p["lon"]) for p in map_est.get("meteo", [])]
+               + [(p["lat"], p["lon"]) for p in map_est.get("hidro", [])]
+               + [(p["lat"], p["lon"]) for p in map_est.get("lagunas", [])])
+        for la, lo in pts:
+            s, n = min(s, la), max(n, la)
+            w, e = min(w, lo), max(e, lo)
+        m.fit_bounds([[s, w], [n, e]], padding=(12, 12))
+    except Exception:
+        pass
+
+    # Leyenda (elevación + tipos de punto) — paleta y tipografía del proyecto.
     leyenda = f"""
     <div style="position:absolute;bottom:18px;left:12px;z-index:9999;
       background:rgba(255,255,255,0.95);padding:10px 13px;border-radius:10px;
       box-shadow:0 1px 8px rgba(10,61,84,.16);
       font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:12px;
-      line-height:1.6;color:{COL_INK};border:1px solid {COL_BORDER}">
+      line-height:1.55;color:{COL_INK};border:1px solid {COL_BORDER};max-width:190px">
       <b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;
         font-size:10.5px">Elevación (m)</b><br>
       <span style="display:inline-block;width:12px;height:12px;background:#7FD3E3;
@@ -391,11 +599,15 @@ def construir_mapa(meta, subs, lim, estaciones) -> str:
       <span style="display:inline-block;width:12px;height:12px;background:{COL_DEEP};
         border-radius:2px;vertical-align:middle"></span> &gt; 3 800<br>
       <b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;
-        font-size:10.5px;display:inline-block;margin-top:6px">Estaciones</b><br>
+        font-size:10.5px;display:inline-block;margin-top:6px">Puntos</b><br>
+      <span style="color:{COL_CRIT};font-size:15px;vertical-align:middle">&#9679;</span>
+        Hidrométrica (salida)<br>
       <span style="color:{COL_ACCENT};font-size:15px;vertical-align:middle">&#9679;</span>
-        Aforo (caudal, SNIRH)<br>
-      <span style="color:{COL_WARN};font-size:15px;vertical-align:middle">&#9650;</span>
-        Meteorológica (lluvia, SENAMHI)
+        Hidrométrica<br>
+      <span style="color:{COL_WARN};font-size:15px;vertical-align:middle">&#9670;</span>
+        Meteorológica (lluvia)<br>
+      <span style="color:{COL_CYAN};font-size:15px;vertical-align:middle">&#9679;</span>
+        Cuerpo de agua
     </div>"""
     m.get_root().html.add_child(folium.Element(leyenda))
 
@@ -2283,23 +2495,23 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         {kpi_html}
       </section>
 
-      <section class="split reveal">
-        <div class="split-main">
-          <div class="mapa-box">
-            <iframe title="Mapa interactivo de la cuenca Chancay–Huaral"
-                    class="mapa-iframe" srcdoc="{mapa_srcdoc}" loading="lazy"></iframe>
-          </div>
-        </div>
-        <aside class="split-aside">
+      <section class="mapa-sec reveal" aria-label="Mapa de la cuenca">
+        <div class="mapa-caption">
           <p class="eyebrow">01 · Cuenca y estación</p>
           <h2 class="h-serif">La cuenca, de la costa a la cabecera andina</h2>
           <p class="prose">Las {nsub} subcuencas se colorean por elevación, del
           litoral (cian) a la cabecera de más de 4 500 m (azul profundo). La
           estación {est['nombre']} (código {est['codigo']}) marca la salida de una
           cuenca de {area:,.0f} km².</p>
-          <p class="prose">Active las capas del mapa (satélite, callejero) y
-          consulte cada subcuenca para ver su elevación y área.</p>
-        </aside>
+          <p class="prose">Active las capas (subcuencas, ríos, estaciones y
+          cuerpos de agua) y haga clic en cada estación para ver su
+          <b>climatología mensual</b> —precipitación o caudal— junto con altitud,
+          período y valores medios.</p>
+        </div>
+        <div class="mapa-box">
+          <iframe title="Mapa interactivo de la cuenca Chancay–Huaral"
+                  class="mapa-iframe" srcdoc="{mapa_srcdoc}" loading="lazy"></iframe>
+        </div>
       </section>
 
       <section class="thesis reveal">
@@ -2793,10 +3005,27 @@ main {{ display:block; }}
   max-width:44ch; }}
 .thesis-body b {{ font-weight:600; color:var(--deep); }}
 
-/* ── Mapa ─────────────────────────────────────────────────────────── */
+/* ── Mapa (bloque a ancho completo con banda de texto encima) ─────── */
+.mapa-sec {{ display:block; }}
+/* Banda de texto (slim): las notas conviven en una fila ancha antes del mapa;
+   la prosa fluye en dos columnas para no crecer en alto. */
+.mapa-caption {{ margin-bottom:clamp(16px,2vw,22px);
+  border-left:2px solid var(--cyan); padding-left:18px; }}
+.mapa-caption .h-serif {{ margin-bottom:10px; }}
+.mapa-caption .prose {{ display:inline-block; vertical-align:top;
+  max-width:52ch; margin-top:8px; }}
+@media (min-width:960px) {{
+  .mapa-caption {{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    grid-template-rows:auto auto; column-gap:clamp(28px,4vw,52px);
+    align-items:start; }}
+  .mapa-caption .eyebrow {{ grid-column:1 / -1; }}
+  .mapa-caption .h-serif {{ grid-column:1 / -1; max-width:34ch; }}
+  .mapa-caption .prose {{ margin-top:0; }}
+}}
 .mapa-box {{ border-radius:var(--radius); overflow:hidden;
   border:1px solid var(--border); box-shadow:var(--shadow-sm); }}
-.mapa-iframe {{ width:100%; height:min(600px,64vh); border:0; display:block; }}
+.mapa-iframe {{ width:100%; height:clamp(560px,68vh,620px); border:0;
+  display:block; }}
 
 /* ── Serie de pronóstico interactiva (selectores) ─────────────────── */
 .fc-controls {{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:18px;
@@ -3463,7 +3692,7 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   .foot-col-eq {{ grid-column:auto; }}
   .equipo {{ grid-template-columns:1fr; }}
   .foot-bar {{ flex-direction:column-reverse; align-items:flex-start; gap:18px; }}
-  .mapa-iframe {{ height:440px; }}
+  .mapa-iframe {{ height:clamp(420px,78vh,520px); }}
   .fc-select {{ min-width:0; width:100%; }}
   .fc-field {{ flex:1 1 44%; }}
   .fc-readout {{ margin-left:0; text-align:left; flex:1 1 100%; }}
@@ -4877,14 +5106,14 @@ JS_STORY = """
 def main():
     (serie, metr, meta, subs, lim, fcast, mens, enso, acf, ccf,
      estaciones, enso_abl, enso_extra, emb_coords, emb_sil,
-     clima_meta) = cargar()
+     clima_meta, map_est, rios) = cargar()
     imgs = cargar_imagenes()
     print("Datos cargados. Construyendo componentes...")
     if imgs:
         print(f"  Recursos de imagen embebidos: {', '.join(sorted(imgs))}")
     else:
         print("  Sin imágenes en assets/: se usa respaldo tipográfico.")
-    mapa_html = construir_mapa(meta, subs, lim, estaciones)
+    mapa_html = construir_mapa(meta, subs, lim, estaciones, map_est, rios)
     cfg_fcast = serie_pronostico_datos(fcast, metr)
     serie_div = bloque_serie_interactiva(cfg_fcast)
     anim_div = construir_animacion(metr)
