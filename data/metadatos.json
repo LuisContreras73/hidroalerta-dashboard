@@ -1,0 +1,60 @@
+{
+  "estacion": {
+    "codigo": "47E214D2",
+    "nombre": "Santo Domingo (Automática)",
+    "lat": -11.3701,
+    "lon": -77.0282,
+    "elev_m": 614,
+    "fuente": "SNIRH/ANA"
+  },
+  "subcuencas": {
+    "sub_634": {
+      "nombre": "Bajo Chancay",
+      "elev_m": 521,
+      "outlet": true
+    },
+    "sub_640": {
+      "nombre": "Aucallama",
+      "elev_m": 1480,
+      "outlet": false
+    },
+    "sub_653": {
+      "nombre": "Medio Alto",
+      "elev_m": 1664,
+      "outlet": false
+    },
+    "sub_650": {
+      "nombre": "Anasmayo",
+      "elev_m": 2841,
+      "outlet": false
+    },
+    "sub_641": {
+      "nombre": "Medio Bajo",
+      "elev_m": 3470,
+      "outlet": false
+    },
+    "sub_646": {
+      "nombre": "Pallac-Parquin",
+      "elev_m": 3812,
+      "outlet": false
+    },
+    "sub_655": {
+      "nombre": "Carac",
+      "elev_m": 4058,
+      "outlet": false
+    },
+    "sub_656": {
+      "nombre": "Baños",
+      "elev_m": 4466,
+      "outlet": false
+    },
+    "sub_649": {
+      "nombre": "Alto Chancay",
+      "elev_m": 4507,
+      "outlet": false
+    }
+  },
+  "umbral_alerta_q90": 40.89,
+  "cuenca_area_km2": 3062.62,
+  "n_subcuencas": 9
+}

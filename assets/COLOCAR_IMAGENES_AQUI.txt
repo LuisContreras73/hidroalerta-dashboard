@@ -1,0 +1,15 @@
+Coloca aquí las imágenes para personalizar el dashboard. Se embeberán como data URI
+(el HTML seguirá siendo un único archivo autocontenido).
+
+Nombres esperados (usa exactamente estos, o dime los que uses):
+
+  utec_logo.png          -> logo de UTEC (header, esquina superior). PNG con fondo transparente ideal.
+  foto_<tu_nombre>.jpg   -> tu foto (sección de equipo / footer). Recorte cuadrado ~400x400 px ideal.
+  foto_integrante2.jpg   -> (opcional) fotos del resto del equipo
+  foto_integrante3.jpg
+  foto_integrante4.jpg
+  cuenca.jpg             -> (opcional) foto real de la cuenca o de la estación Santo Domingo
+
+Formatos: PNG o JPG. Tamaño recomendado < 500 KB cada una (se optimizan al embeber).
+Nota de seguridad: estas imágenes SÍ se publican en GitHub Pages (son parte del dashboard);
+no incluyas nada sensible.

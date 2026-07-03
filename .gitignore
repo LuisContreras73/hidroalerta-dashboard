@@ -1,0 +1,40 @@
+# === Script de extraccion de datos: no publicar (referencia rutas locales) ===
+build/prepare_data.py
+
+# === Secretos ===
+.env
+.env.*
+*.key
+.cdsapirc
+**/.cdsapirc
+credentials*.json
+
+# === Pesos, modelos, estudios (por si se copian por error) ===
+*.pt
+*.pth
+*.ckpt
+*.db
+*.joblib
+*.pkl
+
+# === Datos crudos/pesados (defensa en profundidad; data/ solo lleva curado) ===
+data/raw/
+data/model_ready/
+*.nc
+*.grib
+*.parquet
+*.tif
+*.tiff
+
+# === Código de investigación / paper (si por error se copian aquí) ===
+scripts/
+generacion_paper/
+outputs/
+
+# === Notebooks / entornos / temporales ===
+.ipynb_checkpoints/
+.venv/
+.venv313/
+__pycache__/
+*.pyc
+.DS_Store
