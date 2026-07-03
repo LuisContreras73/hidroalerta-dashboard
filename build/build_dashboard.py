@@ -143,7 +143,8 @@ def cargar_imagenes():
 
     Claves:
       · 'logo'                         — utec_logo.png (marca del equipo).
-      · 'logo_senamhi/ana/ecmwf'       — logos de las fuentes de datos.
+      · 'logo_senamhi/ana/ecmwf/noaa'  — logos de las fuentes de datos.
+      · 'tool_python/pytorch/gee'      — logos de herramientas (stack técnico).
       · 'foto_1'..'foto_4'             — foto_*.jpg (avatares del equipo, por orden).
     Si una imagen falta, el HTML degrada con respaldo tipográfico (sin roturas).
     Las figuras de representación (embeddings) ya no se embeben: el bloque de
@@ -162,6 +163,8 @@ def cargar_imagenes():
 
     # Logos por nombre de archivo → clave interna. Fuentes de datos:
     # ANA (caudal/SNIRH), SENAMHI (PISCO + estaciones), ECMWF/Copernicus (ERA5-Land) y NOAA (ENSO).
+    # Herramientas / stack tecnológico (sección "Herramientas", distinta de las
+    # fuentes): Python, PyTorch, Google Earth Engine.
     for clave, archivos in (
         ("logo", ("utec_logo.png",)),
         ("logo_ana", ("ANA_logo.png", "ana_logo.png")),
@@ -170,6 +173,11 @@ def cargar_imagenes():
         # NOAA: acepta variantes de nombre (guion o guion bajo, mayúsculas).
         ("logo_noaa", ("noaa_logo.png", "noaa-logo.png", "NOAA_logo.png",
                        "NOAA-logo.png")),
+        # Logos de herramientas (stack): claves 'tool_*'.
+        ("tool_python", ("python_logo.png",)),
+        ("tool_pytorch", ("pytorch_logo.png",)),
+        ("tool_gee", ("googleearth-engine_logo.png",
+                      "googleearth_engine_logo.png", "gee_logo.png")),
     ):
         for archivo in archivos:
             p = ASSETS / archivo
@@ -1365,6 +1373,52 @@ def franja_fuentes(imgs: dict, variante: str = "foot") -> str:
         "</div>")
 
 
+# ── Herramientas (stack tecnológico) — DISTINTO de las fuentes de datos ────────
+# Las fuentes de datos son INSTITUCIONES (ANA/SENAMHI/…); esto es el STACK
+# TÉCNICO con el que se construyó el proyecto. Se muestra estático (sin marquee):
+# el movimiento ya lo aporta la cinta de fuentes. Badges con logo (Python,
+# PyTorch, Google Earth Engine) + badges de texto para las que no tienen logo.
+# Cada entrada de logo: (clave_logo, nombre visible, alt). Si el logo falta,
+# degrada a un badge de texto (sin romper la fila).
+TOOLS_LOGO = [
+    ("tool_python", "Python", "Logo de Python"),
+    ("tool_pytorch", "PyTorch", "Logo de PyTorch"),
+    ("tool_gee", "Google Earth Engine", "Logo de Google Earth Engine"),
+]
+# Herramientas sin logo → badge de texto (pill tenue con acento agua).
+TOOLS_TEXTO = ["Plotly", "Folium", "Pandas", "Optuna", "LightGBM"]
+
+
+def franja_herramientas(imgs: dict) -> str:
+    """Sección «Herramientas» (stack tecnológico): fila estática de badges.
+
+    Badges con logo (logo + nombre) para Python, PyTorch y Google Earth Engine;
+    badges de texto (pill) para Plotly, Folium, Pandas, Optuna y LightGBM.
+    Claramente etiquetada como herramientas y separada de la franja de fuentes
+    de datos (que son instituciones). Envuelve en móvil (flex-wrap)."""
+    badges = []
+    for clave, nombre, alt in TOOLS_LOGO:
+        uri = imgs.get(clave)
+        if uri:
+            badges.append(
+                f"<span class='tool-badge tool-badge-logo'>"
+                f"<img class='tool-logo' src='{uri}' alt='{alt}' "
+                f"loading='lazy'>"
+                f"<span class='tool-name'>{nombre}</span></span>")
+        else:
+            # Degradación: si falta el logo, badge de texto (no rompe la fila).
+            badges.append(
+                f"<span class='tool-badge tool-badge-txt'>{nombre}</span>")
+    for nombre in TOOLS_TEXTO:
+        badges.append(
+            f"<span class='tool-badge tool-badge-txt'>{nombre}</span>")
+    return (
+        "<div class='tools'>"
+        "<h4 class='tools-eyebrow'>Herramientas</h4>"
+        f"<div class='tools-row'>{''.join(badges)}</div>"
+        "</div>")
+
+
 # ── Ensamblado del HTML final ─────────────────────────────────────────────────
 def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
@@ -1393,6 +1447,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
 
     strip_fuentes = franja_fuentes(imgs, "strip")
     foot_fuentes = franja_fuentes(imgs, "foot")
+    herramientas_html = franja_herramientas(imgs)
 
     # Pestañas: (id, etiqueta). El orden define tablist y navegación.
     tabs = [
@@ -1409,11 +1464,14 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         f'data-tab="{tid}">{lab}</button>'
         for tid, lab in tabs)
 
-    # Integrantes: presentación que "vende" (rol + bio con gancho + chips de
-    # habilidades + íconos de contacto). La foto (foto_N por orden) se mantiene
-    # a 116px sin distorsión. Los correos se abren con mailto; LinkedIn y GitHub
-    # como enlaces externos (target=_blank rel=noopener). Solo SVG inline (nada
-    # de imágenes externas).
+    # Integrantes: presentación que "vende" en dos bloques por tarjeta —
+    #   1) fila superior: FOTO cuadrada 116px (izquierda) + identidad
+    #      (nombre serif + rol + bio con gancho) al costado;
+    #   2) banda inferior full-width (ocupa también bajo la foto): chips de
+    #      habilidades + íconos de contacto.
+    # La foto (foto_N por orden) es cuadrada, object-fit:cover, sin distorsión.
+    # Los correos se abren con mailto; LinkedIn y GitHub como enlaces externos
+    # (target=_blank rel=noopener). Solo SVG inline (nada de imágenes externas).
     GITHUB_REPO = "https://github.com/LuisContreras73/hidroalerta-dashboard"
     integrantes = [
         {
@@ -1517,14 +1575,25 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         # Chips de habilidades (pills sobrias, en fila que envuelve).
         chips_html = "".join(
             f"<span class='eq-chip'>{c}</span>" for c in p["chips"])
+        # Estructura en dos bloques:
+        #   · Fila superior (.eq-top): foto + identidad (nombre/rol/bio).
+        #   · Banda inferior (.eq-band, full-width): chips + contactos.
+        # La banda ocupa también bajo la foto → tarjeta equilibrada y aireada.
         filas_eq.append(
-            f"<li class='eq-card'>{avatar}<div class='eq-text'>"
+            f"<li class='eq-card'>"
+            f"<div class='eq-top'>"
+            f"{avatar}"
+            f"<div class='eq-ident'>"
             f"<span class='eq-nombre'>{n}</span>"
             f"<span class='eq-rol'>{p['rol']}</span>"
             f"<p class='eq-bio'>{p['bio']}</p>"
+            f"</div>"
+            f"</div>"
+            f"<div class='eq-band'>"
             f"<span class='eq-chips'>{chips_html}</span>"
             f"{_contactos(p)}"
-            f"</div></li>")
+            f"</div>"
+            f"</li>")
     equipo_html = "".join(filas_eq)
 
     hidro_svg = (
@@ -1854,6 +1923,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <p class="foot-p">HidroAlerta Chancay–Huaral integra modelos de aprendizaje
       automático con hidrología de la cuenca para anticipar crecidas y apoyar la
       gestión del riesgo. Presentado al <b>Concurso ANA 2026</b>.</p>
+      {herramientas_html}
     </div>
     <div class="foot-col foot-col-lic">
       <h4 class="foot-h">Licencia</h4>
@@ -2185,25 +2255,30 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .foot-h::after {{ content:""; position:absolute; left:0; bottom:0;
   width:34px; height:2px; border-radius:2px;
   background:linear-gradient(90deg,var(--cyan),var(--accent)); }}
-/* Equipo: tarjetas que "venden" (foto cuadrada→circular sin distorsión +
-   nombre serif + rol + bio con gancho + chips de habilidades + íconos de
-   contacto). La foto vive en un contenedor cuadrado FIJO (flex:0 0 auto) para
-   que nunca se comprima ni se estire; la columna de texto (min-width:0, flex:1)
-   respira con gap holgado. Micro-interacción de elevación al hover. */
+/* Equipo: tarjetas en DOS bloques para que respiren —
+   · Fila superior (.eq-top): foto CUADRADA fija (flex:0 0 auto) + identidad
+     (nombre serif + rol + bio con gancho). Solo estos dos bloques van al lado
+     de la foto.
+   · Banda inferior (.eq-band): full-width (ocupa también bajo la foto) con los
+     chips de habilidades a la izquierda y los íconos de contacto a la derecha,
+     separada por un hairline tenue.
+   Micro-interacción de elevación al hover (respeta prefers-reduced-motion). */
 .equipo {{ list-style:none; padding:0; margin:0; display:flex;
   flex-direction:column; gap:16px; }}
-.eq-card {{ display:flex; align-items:flex-start; gap:20px;
-  padding:20px 22px; border-radius:14px;
+.eq-card {{ display:flex; flex-direction:column; gap:16px;
+  padding:22px 24px; border-radius:14px;
   background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.08);
   transition:background .2s ease, border-color .2s ease, transform .2s ease,
     box-shadow .2s ease; }}
 .eq-card:hover {{ background:rgba(255,255,255,.07);
   border-color:rgba(27,168,196,.4); transform:translateY(-3px);
   box-shadow:0 12px 30px rgba(0,0,0,.32); }}
-/* Contenedor cuadrado fijo: NUNCA se comprime ni se estira (flex:0 0 auto +
+/* Fila superior: foto + identidad, al costado. */
+.eq-top {{ display:flex; align-items:flex-start; gap:20px; }}
+/* Contenedor CUADRADO fijo: NUNCA se comprime ni se estira (flex:0 0 auto +
    aspect-ratio de refuerzo) → la foto no se distorsiona. */
 .eq-foto {{ flex:0 0 auto; width:116px; height:116px; aspect-ratio:1/1;
-  border-radius:50%; overflow:hidden; position:relative;
+  border-radius:12px; overflow:hidden; position:relative;
   display:inline-flex; align-items:center; justify-content:center;
   background:#0E3345; box-shadow:0 6px 20px rgba(0,0,0,.34);
   outline:2px solid rgba(27,168,196,.45); outline-offset:3px;
@@ -2214,8 +2289,8 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   object-position:center; display:block; }}
 .eq-foto-txt {{ font-family:var(--mono); font-weight:600;
   font-size:clamp(28px,3vw,36px); color:var(--cyan); letter-spacing:.02em; }}
-/* Columna de texto: flex:1 + min-width:0 para que respire y no se apretuje. */
-.eq-text {{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0;
+/* Identidad (nombre/rol/bio): flex:1 + min-width:0 para que respire. */
+.eq-ident {{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0;
   gap:5px; }}
 .eq-nombre {{ font-family:var(--serif); color:#fff; font-weight:600;
   font-size:16.5px; line-height:1.28; letter-spacing:-.005em; }}
@@ -2224,16 +2299,21 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 /* Bio con gancho: presentación breve que "vende". */
 .eq-bio {{ color:#B4C6D0; font-size:13px; line-height:1.55; margin:7px 0 0;
   max-width:52ch; }}
+/* Banda inferior full-width: chips (izquierda) + contactos (derecha),
+   separada del bloque superior por un hairline tenue. */
+.eq-band {{ display:flex; flex-wrap:wrap; align-items:center;
+  justify-content:space-between; gap:12px 16px;
+  padding-top:15px; border-top:1px solid rgba(255,255,255,.09); }}
 /* Chips de habilidades: pills sobrias (borde/relleno tenue, acento agua) en
    fila que envuelve. */
-.eq-chips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:11px; }}
+.eq-chips {{ display:flex; flex-wrap:wrap; gap:6px; min-width:0; }}
 .eq-chip {{ font-family:var(--sans); font-size:11px; font-weight:500;
   color:#CBE4EC; background:rgba(27,168,196,.1);
   border:1px solid rgba(27,168,196,.28); border-radius:999px;
   padding:3px 10px; line-height:1.4; white-space:nowrap; }}
 /* Íconos de contacto: botones circulares sobrios con acento agua al hover. */
 .eq-contact {{ display:flex; flex-wrap:wrap; align-items:center; gap:9px;
-  margin-top:13px; }}
+  flex:none; }}
 .eq-ico {{ display:inline-flex; align-items:center; justify-content:center;
   width:34px; height:34px; border-radius:50%; color:#9DB3BF;
   background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12);
@@ -2331,6 +2411,31 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   border:1px solid rgba(255,255,255,.18); border-radius:6px; padding:9px 11px;
   line-height:1; min-width:96px; text-align:center; }}
 .src-aporte {{ font-size:12.5px; color:#B4C6D0; line-height:1.45; }}
+
+/* ── Herramientas (stack tecnológico, en el footer oscuro) ────────── */
+/* Fila estática de badges (sin marquee): logos + nombre para Python/PyTorch/
+   GEE, y pills de texto (acento agua) para las demás. Distinta de las fuentes
+   de datos (instituciones). Envuelve en móvil. */
+.tools {{ margin-top:22px; }}
+.tools-eyebrow {{ font-family:var(--sans); color:var(--cyan); font-size:11px;
+  font-weight:600; text-transform:uppercase; letter-spacing:.11em;
+  margin:0 0 13px; }}
+.tools-row {{ display:flex; flex-wrap:wrap; align-items:center; gap:9px; }}
+/* Badge base (pill sobria sobre el footer oscuro). */
+.tool-badge {{ display:inline-flex; align-items:center;
+  border-radius:999px; line-height:1; white-space:nowrap;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05); }}
+/* Badge con logo: logo (~28px) alineado con su etiqueta. */
+.tool-badge-logo {{ gap:8px; padding:6px 13px 6px 10px; }}
+.tool-logo {{ height:28px; width:auto; display:block; flex:none;
+  object-fit:contain; }}
+.tool-name {{ font-family:var(--sans); font-size:12.5px; font-weight:600;
+  color:#EAF3F6; letter-spacing:.005em; }}
+/* Badge de texto: pill tenue con acento agua. */
+.tool-badge-txt {{ font-family:var(--sans); font-size:12px; font-weight:500;
+  color:#CBE4EC; padding:7px 13px;
+  background:rgba(27,168,196,.1); border-color:rgba(27,168,196,.3); }}
 
 /* ── Callout editorial (hallazgo ENSO: R² + supresión mutua) ──────── */
 .callout {{ position:relative; grid-column:1;
@@ -2442,12 +2547,16 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   /* Small-multiples de embeddings: una sola columna en móvil. */
   .emb-grid {{ grid-template-columns:1fr; }}
 }}
-/* Tarjeta de equipo en móvil: apila (foto centrada arriba, texto centrado
-   debajo). En ningún ancho el texto se monta sobre la foto ni se corta. */
+/* Tarjeta de equipo en móvil: apila (foto centrada arriba, luego nombre/rol/bio,
+   y finalmente chips + contactos centrados). En ningún ancho el texto se monta
+   sobre la foto ni se corta. */
 @media (max-width:560px) {{
-  .eq-card {{ flex-direction:column; align-items:center; text-align:center;
-    gap:14px; padding:20px 18px; }}
-  .eq-text {{ align-items:center; width:100%; }}
+  .eq-card {{ gap:14px; padding:20px 18px; }}
+  .eq-top {{ flex-direction:column; align-items:center; text-align:center;
+    gap:14px; }}
+  .eq-ident {{ align-items:center; width:100%; }}
+  .eq-band {{ flex-direction:column; align-items:center; text-align:center;
+    gap:14px; }}
   .eq-chips {{ justify-content:center; }}
   .eq-contact {{ justify-content:center; }}
 }}
