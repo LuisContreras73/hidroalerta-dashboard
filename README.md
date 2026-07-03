@@ -48,12 +48,8 @@ reconstruir sin acceso a datos adicionales.
 
 Proyecto Integrador — Ciencia de Datos (2026). Equipo HidroAlerta:
 
-- Integrante 1 — Coordinación de datos e ingesta
-- Integrante 2 — Análisis exploratorio y visualización
-- Integrante 3 — Modelado y evaluación
-- Integrante 4 — Dashboard e integración
-
-*(Reemplazar por los nombres reales.)*
+- Luis Alonzo Contreras Perez — Datos, modelado y evaluación
+- Diego Alonso Javier Mijahuanca Quispe — Análisis exploratorio, visualización y dashboard
 
 ## Licencia
 

@@ -886,10 +886,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         logo_html = '<span class="brand-logo-txt" aria-hidden="true">UTEC</span>'
 
     integrantes = [
-        ("Integrante 1", "Coordinación de datos e ingesta"),
-        ("Integrante 2", "Análisis exploratorio y visualización"),
-        ("Integrante 3", "Modelado y evaluación"),
-        ("Integrante 4", "Dashboard e integración"),
+        ("Luis Alonzo Contreras Perez", "Datos, modelado y evaluación"),
+        ("Diego Alonso Javier Mijahuanca Quispe", "Análisis exploratorio, visualización y dashboard"),
     ]
 
     def _iniciales(nombre: str) -> str:
