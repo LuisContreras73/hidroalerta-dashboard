@@ -2278,7 +2278,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     </div>
 
     <div class="tab-body">
-      {resultados_html}
       <section class="reveal" aria-label="Indicadores resumen">
         <p class="eyebrow">Cifras clave · periodo de prueba 2024–2025</p>
         {kpi_html}
@@ -2302,8 +2301,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           consulte cada subcuenca para ver su elevación y área.</p>
         </aside>
       </section>
-
-      {protocolo_html}
 
       <section class="thesis reveal">
         <p class="eyebrow">La tesis</p>
