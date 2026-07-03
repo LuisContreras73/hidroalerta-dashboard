@@ -995,13 +995,17 @@ EMB_METODOS = ["PCA", "Isomap", "UMAP", "DTW→MDS"]
 
 
 def embeddings_datos(coords: pd.DataFrame, sil: dict) -> str:
-    """Empaqueta las proyecciones por método para el carrusel de scatters.
+    """Empaqueta las proyecciones por método para los small-multiples 2×2.
 
     Por método emite arrays PLANOS y paralelos (x, y, q, fecha, regimen,
     temporada) para que el JS construya cualquiera de las tres coloraciones
     (magnitud del caudal, crecida vs base, temporada) sobre el MISMO scatter.
-    Incluye la silueta (crecida/base) por método. Análisis no supervisado
-    (independiente del modelo)."""
+    La `fecha` es la llave del HOVER SINCRONIZADO: al pasar el cursor por un
+    punto en un panel se resalta el mismo punto (misma fecha) en los demás.
+    PCA/Isomap/UMAP comparten fechas; DTW→MDS es un subconjunto propio, por lo
+    que el resalte solo aparece donde esa fecha existe. Incluye la silueta
+    (crecida/base) por método. Análisis no supervisado (independiente del
+    modelo)."""
     def sil_de(metodo: str):
         # Tolera claves con flecha ASCII o unicode.
         for k in (metodo, metodo.replace("→", "->"), metodo.replace("->", "→")):
@@ -1053,20 +1057,17 @@ def embeddings_datos(coords: pd.DataFrame, sil: dict) -> str:
 
 
 def bloque_embeddings(cfg_json: str) -> str:
-    """Carrusel de métodos (flechas + puntos + teclado) + conmutador de 3
-    coloraciones + scatter Plotly compartido + silueta.
+    """Small-multiples 2×2 sincronizados + conmutador único de 3 coloraciones.
 
-    Reemplaza el <select> por un carrusel: cada slide es un método de proyección
-    (PCA, Isomap, UMAP, DTW→MDS) y el mismo scatter se recolorea con tres
-    esquemas —magnitud del caudal, crecida vs base (Q90) y temporada— para
-    juzgar qué estructura captura cada método. Model-agnóstico (no supervisado)."""
-    # Puntos de paginación del carrusel (uno por método presente).
-    puntos = "".join(
-        f"<button type='button' class='emb-dot{' is-active' if i == 0 else ''}'"
-        f" data-idx='{i}' aria-label='Ir a {m}'"
-        f" aria-current='{'true' if i == 0 else 'false'}'></button>"
-        for i, m in enumerate(EMB_METODOS))
+    Los cuatro métodos de proyección (PCA, Isomap, UMAP, DTW→MDS) se muestran a
+    la vez en una rejilla 2×2 de mini-scatters Plotly (1 columna en móvil). Un
+    único conmutador (3 botones toggle) recolorea los cuatro paneles a la vez
+    —magnitud del caudal, crecida vs base (Q90) o temporada—. El HOVER está
+    SINCRONIZADO: al pasar el cursor por un punto en cualquier panel se resalta
+    el mismo punto (misma fecha) en los demás. Model-agnóstico (no supervisado).
 
+    Los divs de los paneles (uno por método) se crean vacíos; el JS
+    (JS_EMBED) dibuja cada scatter y cablea el hover cruzado."""
     # Conmutador de coloración (3 opciones tipo segmented control).
     coloraciones = [
         ("q", "Magnitud del caudal"),
@@ -1081,54 +1082,40 @@ def bloque_embeddings(cfg_json: str) -> str:
         f" data-color='{cid}'>{lab}</button>"
         for i, (cid, lab) in enumerate(coloraciones))
 
-    return f"""
-    <div class="emb" aria-roledescription="carrusel"
-         aria-label="Métodos de representación (embeddings)">
-      <div class="emb-bar">
-        <div class="emb-carousel" role="group"
-             aria-label="Método de proyección (carrusel)">
-          <button type="button" class="emb-arrow emb-prev"
-                  aria-label="Método anterior">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
-                 focusable="false" fill="none" stroke="currentColor"
-                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M15 5l-7 7 7 7"/></svg></button>
-          <div class="emb-method">
-            <span class="emb-method-lab">Método de proyección</span>
-            <span class="emb-method-name" id="emb-metodo-nombre" aria-live="polite">—</span>
-          </div>
-          <button type="button" class="emb-arrow emb-next"
-                  aria-label="Método siguiente">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
-                 focusable="false" fill="none" stroke="currentColor"
-                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 5l7 7-7 7"/></svg></button>
-        </div>
-        <div class="fc-readout" aria-live="polite">
-          <span class="fc-readout-lab">Silueta (crecida vs base)</span>
-          <span id="emb-sil" class="fc-readout-val">—</span>
-        </div>
-      </div>
+    # Un panel por método: título (nombre + silueta) + div del mini-scatter.
+    # El slug ASCII evita caracteres problemáticos en el id del div.
+    slug = {"PCA": "pca", "Isomap": "isomap", "UMAP": "umap", "DTW→MDS": "dtw"}
+    paneles = "".join(
+        f"""      <figure class="emb-panel" data-metodo="{m}">
+        <figcaption class="emb-panel-head">
+          <span class="emb-panel-name">{m}</span>
+          <span class="emb-panel-sil" id="emb-sil-{slug[m]}">silueta —</span>
+        </figcaption>
+        <div class="emb-panel-plot" id="grafico-embeddings-{slug[m]}"></div>
+      </figure>
+"""
+        for m in EMB_METODOS)
 
+    return f"""
+    <div class="emb" aria-label="Métodos de representación (embeddings)">
       <div class="emb-color" role="group"
-           aria-label="Esquema de coloración del scatter">
+           aria-label="Esquema de coloración de los cuatro paneles">
         <span class="emb-color-lab">Colorear por</span>
         {botones_col}
       </div>
 
-      <div id="grafico-embeddings" class="emb-plot"></div>
-
-      <div class="emb-dots" role="tablist" aria-label="Seleccionar método">
-        {puntos}
-      </div>
+      <div class="emb-grid" role="group"
+           aria-label="Cuatro métodos de proyección (rejilla 2×2)">
+{paneles}      </div>
     </div>
-    <p class="nota">Cada punto es una ventana temporal del caudal proyectada a 2D
-    por el método del <b>carrusel</b> (use las flechas, los puntos o el teclado);
+    <p class="nota">Cada punto es una ventana temporal del caudal proyectada a 2D;
     los ejes no tienen unidades físicas (son coordenadas de la proyección). El
-    objetivo es ver cómo se <b>agrupan</b> los datos: comparar las <b>tres
-    coloraciones</b> —magnitud del caudal, crecida vs base (Q90) y temporada—
-    ayuda a juzgar qué estructura captura cada método. La <b>silueta</b> mide cuán
-    bien se separan crecida y base (mayor = mejor). Al ser un análisis <b>no
+    objetivo del embedding es ver cómo se <b>agrupan</b> los datos: comparar los
+    <b>cuatro métodos</b> y las <b>tres coloraciones</b> —magnitud del caudal,
+    crecida vs base (Q90) y temporada— ayuda a juzgar qué estructura capta cada
+    uno. Al pasar el cursor por un punto se <b>resalta el mismo instante</b>
+    (misma fecha) en los demás paneles. La <b>silueta</b> mide cuán bien se
+    separan crecida y base (mayor = mejor). Al ser un análisis <b>no
     supervisado</b> (sin usar el modelo ni el umbral), la estructura crecida/base
     emerge como propiedad <b>intrínseca de los datos</b>: los métodos no lineales
     (Isomap) y basados en la forma temporal (DTW→MDS) la separan mejor que los
@@ -1218,6 +1205,37 @@ def kpi_cards(serie: pd.DataFrame) -> str:
             f"<p class='kpi-desc'>{desc}</p>"
             f"</div>")
     return f"<div class='kpi-row'>{''.join(out)}</div>"
+
+
+# ── Banda de contadores animados ("Por los números") ──────────────────────────
+def banda_contadores() -> str:
+    """Franja de cifras del proyecto con contadores que suben al entrar en vista
+    (IntersectionObserver, ver JS_COUNTERS). El número final se escribe como
+    contenido de texto para que sea correcto sin JS y bajo prefers-reduced-motion;
+    la animación solo reinicia a 0 y cuenta cuando el movimiento está permitido.
+    Números grandes en mono tabular + etiqueta pequeña debajo."""
+    # (valor_final, sufijo, etiqueta). El sufijo no se anima (p.ej. rango de años).
+    contadores = [
+        (45, "", "años de datos", "1981–2025"),
+        (9, "", "subcuencas", ""),
+        (6, "", "estaciones", "aforo + meteo"),
+        (14, "", "días de horizonte", ""),
+        (4, "", "modelos comparados", ""),
+    ]
+    items = []
+    for val, suf, lab, sub in contadores:
+        sub_html = f"<span class='cnt-sub'>{sub}</span>" if sub else ""
+        items.append(
+            f"<div class='cnt'>"
+            f"<span class='cnt-num' data-target='{val}'>{val}</span>"
+            f"<span class='cnt-lab'>{lab}</span>"
+            f"{sub_html}"
+            f"</div>")
+    return (
+        "<section class='numeros reveal' aria-label='El proyecto en cifras'>"
+        "<p class='eyebrow'>Por los números</p>"
+        f"<div class='cnt-row'>{''.join(items)}</div>"
+        "</section>")
 
 
 # ── Hidrograma ambiental del hero (SVG polyline a partir de la serie real) ────
@@ -1354,6 +1372,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
+    contadores_html = banda_contadores()
     mapa_srcdoc = mapa_html.replace("&", "&amp;").replace('"', "&quot;")
     hidro_linea, hidro_area = _hero_hidrograma(serie)
 
@@ -1390,18 +1409,38 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         f'data-tab="{tid}">{lab}</button>'
         for tid, lab in tabs)
 
-    # (nombre, rol, LinkedIn, [correos]). Los correos se muestran como enlaces
-    # mailto discretos; la foto (foto_N por orden) se agranda a ~120px.
+    # Integrantes: presentación que "vende" (rol + bio con gancho + chips de
+    # habilidades + íconos de contacto). La foto (foto_N por orden) se mantiene
+    # a 116px sin distorsión. Los correos se abren con mailto; LinkedIn y GitHub
+    # como enlaces externos (target=_blank rel=noopener). Solo SVG inline (nada
+    # de imágenes externas).
+    GITHUB_REPO = "https://github.com/LuisContreras73/hidroalerta-dashboard"
     integrantes = [
-        ("Luis Alonzo Contreras Perez",
-         "Deep learning · Desarrollo del dashboard",
-         "https://www.linkedin.com/in/luis-alonzo-contreras-perez",
-         ["luis.contreras@utec.edu.pe",
-          "luis.alonzo.contreras.perez@gmail.com"]),
-        ("Diego Alonso Javier Mijahuanca Quispe",
-         "Desarrollo del dashboard",
-         "https://www.linkedin.com/in/diego-alonso-javier-mijahuanca-quispe-5546882aa",
-         ["diego.mijahuanca@utec.edu.pe"]),
+        {
+            "nombre": "Luis Alonzo Contreras Perez",
+            "rol": "Deep Learning · Desarrollo del dashboard",
+            "bio": ("Diseñó la arquitectura propia RA-TFT (transformer de "
+                    "pronóstico multi-horizonte) y el sistema de alerta; "
+                    "construyó el dashboard interactivo."),
+            "chips": ["PyTorch", "Transformers", "Series temporales",
+                      "Optuna", "Plotly"],
+            "correos": ["luis.contreras@utec.edu.pe",
+                        "luis.alonzo.contreras.perez@gmail.com"],
+            "linkedin": "https://www.linkedin.com/in/luis-alonzo-contreras-perez",
+            "github": GITHUB_REPO,
+        },
+        {
+            "nombre": "Diego Alonso Javier Mijahuanca Quispe",
+            "rol": "Desarrollo del dashboard · Análisis de datos",
+            "bio": ("Desarrollo del dashboard interactivo, análisis "
+                    "exploratorio y visualización de los resultados "
+                    "hidroclimáticos."),
+            "chips": ["Python", "EDA", "Folium", "Pandas", "Earth Engine"],
+            "correos": ["diego.mijahuanca@utec.edu.pe"],
+            "linkedin": ("https://www.linkedin.com/in/"
+                         "diego-alonso-javier-mijahuanca-quispe-5546882aa"),
+            "github": GITHUB_REPO,
+        },
     ]
 
     def _iniciales(nombre: str) -> str:
@@ -1412,19 +1451,59 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             return partes[0][:2].upper()
         return (partes[0][0] + partes[-1][0]).upper()
 
-    # Ícono LinkedIn en línea (SVG monocromo, hereda color vía currentColor).
-    li_icon = (
-        "<svg class='eq-li-ico' viewBox='0 0 24 24' width='15' height='15' "
-        "aria-hidden='true' focusable='false' fill='currentColor'>"
+    # Íconos de contacto en línea (SVG monocromo, heredan color vía
+    # currentColor). Solo inline —sin imágenes externas—. La <svg> es
+    # aria-hidden porque el <a> ya lleva aria-label descriptivo.
+    ICO_MAIL = (
+        "<svg viewBox='0 0 24 24' width='17' height='17' aria-hidden='true' "
+        "focusable='false' fill='none' stroke='currentColor' stroke-width='1.9' "
+        "stroke-linecap='round' stroke-linejoin='round'>"
+        "<rect x='3' y='5' width='18' height='14' rx='2'/>"
+        "<path d='M3.5 6.5l8.5 6 8.5-6'/></svg>")
+    ICO_LI = (
+        "<svg viewBox='0 0 24 24' width='17' height='17' aria-hidden='true' "
+        "focusable='false' fill='currentColor'>"
         "<path d='M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 "
         "1.45-2.14 2.94v5.67H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 "
         "3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 "
         "2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.8 0 0 "
         ".78 0 1.74v20.51C0 23.22.8 24 1.77 24h20.45c.98 0 1.78-.78 "
         "1.78-1.75V1.74C24 .78 23.2 0 22.22 0z'/></svg>")
+    ICO_GH = (
+        "<svg viewBox='0 0 24 24' width='17' height='17' aria-hidden='true' "
+        "focusable='false' fill='currentColor'>"
+        "<path d='M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25"
+        ".79-.56 0-.28-.01-1.02-.02-2-3.2.69-3.88-1.54-3.88-1.54-.52-1.33-1.28-1.68"
+        "-1.28-1.68-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7"
+        " 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.25.45"
+        "-2.28 1.19-3.08-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.03 11.03"
+        " 0 0 1 2.9-.39c.98 0 1.97.13 2.9.39 2.2-1.49 3.17-1.18 3.17-1.18.63 1.59"
+        ".23 2.76.12 3.05.74.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.38-5.25 5.67.41.36"
+        ".78 1.07.78 2.16 0 1.56-.01 2.82-.01 3.2 0 .31.21.67.8.56A11.51 11.51 0 0 0"
+        " 23.5 12C23.5 5.73 18.27.5 12 .5z'/></svg>")
+
+    def _contactos(p):
+        n = p["nombre"]
+        items = []
+        for c in p["correos"]:
+            items.append(
+                f"<a class='eq-ico' href='mailto:{c}' "
+                f"aria-label='Escribir a {n} ({c})'>{ICO_MAIL}</a>")
+        if p.get("linkedin"):
+            items.append(
+                f"<a class='eq-ico' href='{p['linkedin']}' target='_blank' "
+                f"rel='noopener' aria-label='LinkedIn de {n} "
+                f"(abre en una pestaña nueva)'>{ICO_LI}</a>")
+        if p.get("github"):
+            items.append(
+                f"<a class='eq-ico' href='{p['github']}' target='_blank' "
+                f"rel='noopener' aria-label='GitHub del proyecto "
+                f"(abre en una pestaña nueva)'>{ICO_GH}</a>")
+        return f"<span class='eq-contact'>{''.join(items)}</span>"
 
     filas_eq = []
-    for i, (n, r, li, correos) in enumerate(integrantes, start=1):
+    for i, p in enumerate(integrantes, start=1):
+        n = p["nombre"]
         foto = imgs.get(f"foto_{i}")
         if foto:
             # Contenedor cuadrado fijo (flex:0 0 auto) → la <img> lo llena con
@@ -1435,20 +1514,17 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         else:
             avatar = (f"<span class='eq-foto eq-foto-txt' aria-hidden='true'>"
                       f"{_iniciales(n)}</span>")
-        # Correos como enlaces mailto discretos (uno por línea).
-        correos_html = "".join(
-            f"<a class='eq-mail' href='mailto:{c}'>{c}</a>" for c in correos)
-        enlace_li = (
-            f"<a class='eq-li' href='{li}' target='_blank' rel='noopener'"
-            f" aria-label='LinkedIn de {n} (abre en una pestaña nueva)'>"
-            f"{li_icon}<span>LinkedIn</span>"
-            f"<span class='eq-li-ext' aria-hidden='true'>↗</span></a>")
+        # Chips de habilidades (pills sobrias, en fila que envuelve).
+        chips_html = "".join(
+            f"<span class='eq-chip'>{c}</span>" for c in p["chips"])
         filas_eq.append(
-            f"<li class='eq-card'>{avatar}<span class='eq-text'>"
+            f"<li class='eq-card'>{avatar}<div class='eq-text'>"
             f"<span class='eq-nombre'>{n}</span>"
-            f"<span class='eq-rol'>{r}</span>"
-            f"<span class='eq-mails'>{correos_html}</span>"
-            f"{enlace_li}</span></li>")
+            f"<span class='eq-rol'>{p['rol']}</span>"
+            f"<p class='eq-bio'>{p['bio']}</p>"
+            f"<span class='eq-chips'>{chips_html}</span>"
+            f"{_contactos(p)}"
+            f"</div></li>")
     equipo_html = "".join(filas_eq)
 
     hidro_svg = (
@@ -1542,6 +1618,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         habilidad y anticipar crecidas —el margen que da la respuesta hidrológica
         de la cuenca, de unos cuatro días entre lluvia y caudal.</p>
       </section>
+
+      {contadores_html}
     </div>
   </section>
 
@@ -1948,6 +2026,20 @@ main {{ display:block; }}
 .kpi:focus-visible {{ outline:2px solid var(--accent); outline-offset:4px;
   border-radius:4px; }}
 
+/* ── Banda de contadores animados ("Por los números") ─────────────── */
+.numeros {{ border-top:1px solid var(--border);
+  padding-top:clamp(24px,3vw,36px); }}
+.cnt-row {{ display:flex; flex-wrap:wrap; gap:clamp(20px,3vw,40px);
+  margin-top:6px; }}
+.cnt {{ flex:1 1 120px; min-width:110px; display:flex; flex-direction:column;
+  gap:5px; }}
+.cnt-num {{ font-family:var(--mono); font-variant-numeric:tabular-nums;
+  font-size:clamp(2.4rem,4.2vw,3.4rem); font-weight:500; color:var(--deep);
+  line-height:1; letter-spacing:-.03em; }}
+.cnt-lab {{ font-family:var(--sans); font-size:12.5px; font-weight:600;
+  color:var(--ink); line-height:1.35; }}
+.cnt-sub {{ font-size:11.5px; color:var(--muted); line-height:1.35; }}
+
 /* ── Paneles asimétricos (gráfico dominante + notas) ──────────────── */
 .split {{ display:grid; grid-template-columns:minmax(0,1.62fr) minmax(0,1fr);
   gap:clamp(24px,3vw,44px); align-items:start; }}
@@ -2093,18 +2185,21 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .foot-h::after {{ content:""; position:absolute; left:0; bottom:0;
   width:34px; height:2px; border-radius:2px;
   background:linear-gradient(90deg,var(--cyan),var(--accent)); }}
-/* Equipo: tarjetas prolijas (foto cuadrada→circular sin distorsión + nombre
-   serif + rol + correos mailto + LinkedIn). La foto vive en un contenedor
-   cuadrado FIJO (flex:0 0 auto) para que nunca se comprima ni se estire; la
-   columna de texto (min-width:0, flex:1) respira con gap holgado. */
+/* Equipo: tarjetas que "venden" (foto cuadrada→circular sin distorsión +
+   nombre serif + rol + bio con gancho + chips de habilidades + íconos de
+   contacto). La foto vive en un contenedor cuadrado FIJO (flex:0 0 auto) para
+   que nunca se comprima ni se estire; la columna de texto (min-width:0, flex:1)
+   respira con gap holgado. Micro-interacción de elevación al hover. */
 .equipo {{ list-style:none; padding:0; margin:0; display:flex;
   flex-direction:column; gap:16px; }}
-.eq-card {{ display:flex; align-items:center; gap:20px;
-  padding:18px 20px; border-radius:14px;
+.eq-card {{ display:flex; align-items:flex-start; gap:20px;
+  padding:20px 22px; border-radius:14px;
   background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.08);
-  transition:background .18s ease, border-color .18s ease; }}
-.eq-card:hover {{ background:rgba(255,255,255,.06);
-  border-color:rgba(27,168,196,.35); }}
+  transition:background .2s ease, border-color .2s ease, transform .2s ease,
+    box-shadow .2s ease; }}
+.eq-card:hover {{ background:rgba(255,255,255,.07);
+  border-color:rgba(27,168,196,.4); transform:translateY(-3px);
+  box-shadow:0 12px 30px rgba(0,0,0,.32); }}
 /* Contenedor cuadrado fijo: NUNCA se comprime ni se estira (flex:0 0 auto +
    aspect-ratio de refuerzo) → la foto no se distorsiona. */
 .eq-foto {{ flex:0 0 auto; width:116px; height:116px; aspect-ratio:1/1;
@@ -2112,7 +2207,8 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   display:inline-flex; align-items:center; justify-content:center;
   background:#0E3345; box-shadow:0 6px 20px rgba(0,0,0,.34);
   outline:2px solid rgba(27,168,196,.45); outline-offset:3px;
-  border:3px solid #123a4e; }}
+  border:3px solid #123a4e; transition:outline-color .2s ease; }}
+.eq-card:hover .eq-foto {{ outline-color:rgba(27,168,196,.75); }}
 /* La imagen llena el contenedor cuadrado sin deformarse. */
 .eq-foto-img {{ width:100%; height:100%; object-fit:cover;
   object-position:center; display:block; }}
@@ -2123,25 +2219,30 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   gap:5px; }}
 .eq-nombre {{ font-family:var(--serif); color:#fff; font-weight:600;
   font-size:16.5px; line-height:1.28; letter-spacing:-.005em; }}
-.eq-rol {{ color:#9DB3BF; font-size:12.5px; line-height:1.45; margin-bottom:5px; }}
-/* Correos: enlaces mailto discretos, mono, uno por línea. */
-.eq-mails {{ display:flex; flex-direction:column; gap:3px; margin-top:2px; }}
-.eq-mail {{ font-family:var(--mono); font-size:11.5px; color:#93AAB6;
-  text-decoration:none; letter-spacing:.005em; overflow-wrap:anywhere;
-  max-width:100%; line-height:1.45; transition:color .16s ease; }}
-.eq-mail:hover {{ color:#CFE0E8; text-decoration:underline;
-  text-underline-offset:2px; }}
-.eq-mail:focus-visible {{ outline:2px solid var(--cyan); outline-offset:2px;
-  border-radius:3px; }}
-.eq-li {{ display:inline-flex; align-items:center; gap:6px; margin-top:9px;
-  color:var(--cyan); font-size:12.5px; font-weight:600; text-decoration:none;
-  width:max-content; max-width:100%; transition:color .16s ease; }}
-.eq-li:hover {{ color:#5FD1E6; text-decoration:underline;
-  text-underline-offset:2px; }}
-.eq-li:focus-visible {{ outline:2px solid var(--cyan); outline-offset:3px;
-  border-radius:4px; }}
-.eq-li-ico {{ flex:none; }}
-.eq-li-ext {{ font-size:11px; }}
+.eq-rol {{ color:var(--cyan); font-size:11.5px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.06em; line-height:1.4; }}
+/* Bio con gancho: presentación breve que "vende". */
+.eq-bio {{ color:#B4C6D0; font-size:13px; line-height:1.55; margin:7px 0 0;
+  max-width:52ch; }}
+/* Chips de habilidades: pills sobrias (borde/relleno tenue, acento agua) en
+   fila que envuelve. */
+.eq-chips {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:11px; }}
+.eq-chip {{ font-family:var(--sans); font-size:11px; font-weight:500;
+  color:#CBE4EC; background:rgba(27,168,196,.1);
+  border:1px solid rgba(27,168,196,.28); border-radius:999px;
+  padding:3px 10px; line-height:1.4; white-space:nowrap; }}
+/* Íconos de contacto: botones circulares sobrios con acento agua al hover. */
+.eq-contact {{ display:flex; flex-wrap:wrap; align-items:center; gap:9px;
+  margin-top:13px; }}
+.eq-ico {{ display:inline-flex; align-items:center; justify-content:center;
+  width:34px; height:34px; border-radius:50%; color:#9DB3BF;
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12);
+  text-decoration:none;
+  transition:color .16s ease, border-color .16s ease, background .16s ease,
+    transform .16s ease; }}
+.eq-ico:hover {{ color:#fff; background:rgba(27,168,196,.22);
+  border-color:rgba(27,168,196,.55); transform:translateY(-2px); }}
+.eq-ico:focus-visible {{ outline:2px solid var(--cyan); outline-offset:3px; }}
 /* Fuentes: metadatos con clave (mono/mayúscula) + valor. */
 .fuentes {{ list-style:none; padding:0; margin:16px 0 0; display:flex;
   flex-direction:column; gap:13px; }}
@@ -2250,29 +2351,11 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .callout-body {{ font-size:14px; color:#33424E; line-height:1.6; }}
 .callout-body b {{ color:var(--ink); font-weight:600; }}
 
-/* ── Representación / embeddings (carrusel de métodos + 3 coloraciones) ── */
-.emb-bar {{ display:flex; flex-wrap:wrap; align-items:center; gap:16px;
-  margin-bottom:12px; padding:14px 18px; background:var(--surf);
-  border:1px solid var(--border); border-radius:var(--radius);
-  box-shadow:var(--shadow-sm); }}
-.emb-carousel {{ display:flex; align-items:center; gap:14px; }}
-.emb-arrow {{ appearance:none; flex:none; cursor:pointer;
-  width:34px; height:34px; border-radius:50%; display:inline-flex;
-  align-items:center; justify-content:center; color:var(--deep);
-  background:var(--surf); border:1.5px solid var(--border);
-  transition:color .16s ease, border-color .16s ease, background .16s ease; }}
-.emb-arrow:hover {{ color:var(--accent); border-color:#B4C4CE; }}
-.emb-arrow:focus-visible {{ outline:none; border-color:var(--accent);
-  box-shadow:0 0 0 3px rgba(11,110,140,.18); }}
-.emb-method {{ display:flex; flex-direction:column; gap:2px; min-width:150px;
-  text-align:center; }}
-.emb-method-lab {{ font-size:10.5px; font-weight:600; text-transform:uppercase;
-  letter-spacing:.08em; color:var(--muted); }}
-.emb-method-name {{ font-family:var(--serif); font-weight:600; font-size:1.35rem;
-  color:var(--deep); line-height:1.1; }}
-/* Conmutador de coloración (segmented control de 3 opciones). */
+/* ── Representación / embeddings (small-multiples 2×2 + 3 coloraciones) ── */
+/* Conmutador de coloración único (segmented control de 3 opciones) que
+   recolorea los CUATRO paneles a la vez. */
 .emb-color {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px;
-  margin-bottom:14px; }}
+  margin-bottom:16px; }}
 .emb-color-lab {{ font-size:11px; font-weight:600; text-transform:uppercase;
   letter-spacing:.08em; color:var(--muted); margin-right:4px; }}
 .emb-cbtn {{ appearance:none; cursor:pointer; font-family:var(--sans);
@@ -2285,17 +2368,21 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   border-color:var(--accent); }}
 .emb-cbtn:focus-visible {{ outline:none;
   box-shadow:0 0 0 3px rgba(11,110,140,.20); }}
-.emb-plot {{ width:100%; min-height:460px; background:var(--surf);
+/* Rejilla 2×2 de mini-scatters (1 columna en móvil, ver responsive). */
+.emb-grid {{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr));
+  gap:clamp(12px,1.6vw,20px); }}
+.emb-panel {{ margin:0; min-width:0; background:var(--surf);
   border:1px solid var(--border); border-radius:var(--radius);
-  box-shadow:var(--shadow-sm); padding:6px 8px; }}
-.emb-dots {{ display:flex; align-items:center; justify-content:center; gap:9px;
-  margin-top:14px; }}
-.emb-dot {{ appearance:none; cursor:pointer; width:8px; height:8px; padding:0;
-  border-radius:50%; border:0; background:#C6D3DB;
-  transition:background .18s ease, transform .18s ease; }}
-.emb-dot:hover {{ background:#9DB3BF; }}
-.emb-dot.is-active {{ background:var(--accent); transform:scale(1.35); }}
-.emb-dot:focus-visible {{ outline:2px solid var(--accent); outline-offset:3px; }}
+  box-shadow:var(--shadow-sm); padding:12px 12px 8px;
+  display:flex; flex-direction:column; }}
+.emb-panel-head {{ display:flex; align-items:baseline; justify-content:space-between;
+  gap:10px; margin:0 2px 4px; }}
+.emb-panel-name {{ font-family:var(--serif); font-weight:600; font-size:1.02rem;
+  color:var(--deep); line-height:1.1; }}
+.emb-panel-sil {{ font-family:var(--mono); font-variant-numeric:tabular-nums;
+  font-size:11px; font-weight:500; color:var(--muted); letter-spacing:.01em;
+  white-space:nowrap; }}
+.emb-panel-plot {{ width:100%; min-height:300px; }}
 
 /* ── Movimiento con propósito ─────────────────────────────────────── */
 /* Solo se oculta si hay JS (clase js-on en <html>); sin JS todo es visible. */
@@ -2315,6 +2402,8 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
     transition:none !important; }}
   .tabpanel {{ animation:none; }}
   .tab::after {{ transition:none; }}
+  /* Sin desplazamientos de elevación en hover (equipo/íconos/contadores). */
+  .eq-card:hover, .eq-ico:hover {{ transform:none; }}
 }}
 
 /* ── Responsive ───────────────────────────────────────────────────── */
@@ -2350,6 +2439,8 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   .fc-readout {{ margin-left:0; text-align:left; flex:1 1 100%; }}
   .mq-logo {{ height:32px; }}
   .mq-item {{ margin:0 20px; }}
+  /* Small-multiples de embeddings: una sola columna en móvil. */
+  .emb-grid {{ grid-template-columns:1fr; }}
 }}
 /* Tarjeta de equipo en móvil: apila (foto centrada arriba, texto centrado
    debajo). En ningún ancho el texto se monta sobre la foto ni se corta. */
@@ -2357,8 +2448,8 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   .eq-card {{ flex-direction:column; align-items:center; text-align:center;
     gap:14px; padding:20px 18px; }}
   .eq-text {{ align-items:center; width:100%; }}
-  .eq-mails {{ align-items:center; }}
-  .eq-li {{ margin-left:auto; margin-right:auto; }}
+  .eq-chips {{ justify-content:center; }}
+  .eq-contact {{ justify-content:center; }}
 }}
 """
 
@@ -2689,39 +2780,42 @@ JS_FORECAST = """
 """
 
 
-# ── Script del carrusel de embeddings (métodos) + 3 coloraciones ───────────────
-# Análisis no supervisado (model-agnóstico). Un solo scatter Plotly compartido:
-# el CARRUSEL (flechas/puntos/teclado) cambia el MÉTODO y el conmutador cambia la
-# COLORACIÓN (magnitud del caudal · crecida vs base · temporada); ambos redibujan
-# el mismo div con Plotly.react. Se redimensiona al activar la pestaña "Datos &
-# representación" (JS_TABS llama Plotly.Plots.resize sobre los .js-plotly-plot),
-# y también tras cambiar de slide (el div visible debe reajustar su ancho).
+# ── Script de los embeddings: small-multiples 2×2 sincronizados + 3 coloraciones ─
+# Análisis no supervisado (model-agnóstico). Los CUATRO métodos (PCA, Isomap,
+# UMAP, DTW→MDS) se dibujan a la vez, uno por div, en una rejilla 2×2. Un único
+# conmutador cambia la COLORACIÓN (magnitud del caudal · crecida vs base ·
+# temporada) y recolorea los cuatro paneles con Plotly.react. HOVER SINCRONIZADO:
+# al pasar el cursor por un punto (plotly_hover) se lee su `fecha` (customdata) y
+# se resalta el mismo punto (misma fecha) en TODOS los paneles mediante una traza
+# de resalte (un aro) que se actualiza con Plotly.restyle; plotly_unhover la
+# limpia. PCA/Isomap/UMAP comparten fechas; DTW→MDS es un subconjunto, por lo que
+# el aro solo aparece donde esa fecha existe. La traza de resalte NO emite eventos
+# de hover, así que no hay bucle de realimentación. Los divs pasan a ser
+# .js-plotly-plot, de modo que JS_TABS ya los redimensiona al activar la pestaña
+# "Datos & representación"; también se redimensionan al cambiar de coloración.
 JS_EMBED = """
 (function(){
   function run(){
     var dataEl = document.getElementById('emb-data');
-    var plotEl = document.getElementById('grafico-embeddings');
-    if (!dataEl || !plotEl || typeof Plotly === 'undefined') return;
+    if (!dataEl || typeof Plotly === 'undefined') return;
     var CFG;
     try { CFG = JSON.parse(dataEl.textContent); } catch(e){ return; }
 
     var orden = CFG.orden || [];
     if (!orden.length) return;
-    var silEl = document.getElementById('emb-sil');
-    var nameEl = document.getElementById('emb-metodo-nombre');
-    var prevBtn = plotEl.parentNode.querySelector('.emb-prev');
-    var nextBtn = plotEl.parentNode.querySelector('.emb-next');
-    var dots = Array.prototype.slice.call(
-      plotEl.parentNode.querySelectorAll('.emb-dot'));
+    var cont = dataEl.parentNode;   // contenedor .tabpanel > .tab-body > <div reveal>
     var cbtns = Array.prototype.slice.call(
-      plotEl.parentNode.querySelectorAll('.emb-cbtn'));
+      document.querySelectorAll('.emb .emb-cbtn'));
     var reduce = window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var FS = 'IBM Plex Sans, -apple-system, Segoe UI, sans-serif';
     var FM = 'IBM Plex Mono, SFMono-Regular, Consolas, monospace';
 
-    var idx = 0;                 // método actual (índice en CFG.orden)
     var colorMode = 'q';         // 'q' | 'reg' | 'temp'
+    var HL_COLOR = CFG.col_ink || '#0C1E2A';
+
+    // Slug ASCII por método (coincide con los id de los divs y las etiquetas).
+    var SLUG = { 'PCA':'pca', 'Isomap':'isomap', 'UMAP':'umap', 'DTW→MDS':'dtw' };
 
     function toRGBA(hex, a){
       var h = hex.replace('#',''); if (h.length===3){ h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; }
@@ -2738,101 +2832,167 @@ JS_EMBED = """
     }
 
     // Divide los índices de un método según una clave ('regimen'/'temporada').
+    // Emite arrays paralelos, incluida la `fecha` como customdata para el hover.
     function split(d, campo, valor){
-      var xs=[], ys=[], tx=[];
+      var xs=[], ys=[], tx=[], cd=[];
       for (var i=0;i<d.x.length;i++){
         if (d[campo][i] === valor){ xs.push(d.x[i]); ys.push(d.y[i]);
-          tx.push(hoverText(d,i)); }
+          tx.push(hoverText(d,i)); cd.push(d.fecha[i]); }
       }
-      return { x:xs, y:ys, text:tx };
+      return { x:xs, y:ys, text:tx, customdata:cd };
     }
 
-    // Trazas para el método `d` según la coloración activa.
-    function tracesFor(d){
+    // Traza de resalte (aro) que se sobrepone; arranca vacía. Es SIEMPRE la
+    // última traza del panel, para actualizarla por índice con Plotly.restyle.
+    function highlightTrace(){
+      return { x:[], y:[], mode:'markers', type:'scatter',
+        name:'resalte', hoverinfo:'skip', showlegend:false,
+        marker:{ color:'rgba(0,0,0,0)', size:15,
+          line:{ width:2.4, color:HL_COLOR } } };
+    }
+
+    // Trazas de datos para el método `d` según la coloración activa
+    // (sin la traza de resalte, que se añade aparte).
+    function dataTraces(d){
       if (colorMode === 'q'){
         // (a) Magnitud del caudal: un solo scatter con color continuo + colorbar.
         var tx = [];
         for (var i=0;i<d.x.length;i++){ tx.push(hoverText(d,i)); }
-        return [{ x:d.x, y:d.y, mode:'markers', type:'scattergl',
-          name:'Caudal', text:tx, hoverinfo:'text', showlegend:false,
+        return [{ x:d.x, y:d.y, mode:'markers', type:'scatter',
+          name:'Caudal', text:tx, customdata:d.fecha, hoverinfo:'text',
+          showlegend:false,
           marker:{ color:d.q, colorscale:SCALE_Q, cmin:CFG.q_min, cmax:CFG.q_max,
-            size:6, opacity:0.82, line:{width:0},
-            colorbar:{ title:{text:'Caudal<br>(m³/s)', side:'right',
-                font:{family:FS, size:11, color:CFG.col_muted}},
-              thickness:12, len:0.82, x:1.015, xpad:2,
-              tickfont:{family:FM, size:10, color:CFG.col_muted},
+            size:5.5, opacity:0.82, line:{width:0},
+            colorbar:{ title:{text:'m³/s', side:'right',
+                font:{family:FS, size:10, color:CFG.col_muted}},
+              thickness:9, len:0.82, x:1.02, xpad:2,
+              tickfont:{family:FM, size:9, color:CFG.col_muted},
               outlinewidth:0 } } }];
       }
       if (colorMode === 'reg'){
         // (b) Crecida vs base (Q90): base azul (debajo), crecida rojo (encima).
         var b = split(d,'regimen','base'), c = split(d,'regimen','crecida');
         return [
-          { x:b.x, y:b.y, mode:'markers', type:'scattergl', name:'Base',
-            text:b.text, hoverinfo:'text',
+          { x:b.x, y:b.y, mode:'markers', type:'scatter', name:'Base',
+            text:b.text, customdata:b.customdata, hoverinfo:'text',
             marker:{ color:toRGBA(CFG.col_base,0.42), size:5, line:{width:0} } },
-          { x:c.x, y:c.y, mode:'markers', type:'scattergl', name:'Crecida',
-            text:c.text, hoverinfo:'text',
-            marker:{ color:toRGBA(CFG.col_crecida,0.82), size:7.5,
+          { x:c.x, y:c.y, mode:'markers', type:'scatter', name:'Crecida',
+            text:c.text, customdata:c.customdata, hoverinfo:'text',
+            marker:{ color:toRGBA(CFG.col_crecida,0.82), size:7,
               line:{width:0.5, color:'#fff'} } }
         ];
       }
       // (c) Temporada: húmeda vs seca (dos colores).
       var h = split(d,'temporada','humeda'), s = split(d,'temporada','seca');
       return [
-        { x:s.x, y:s.y, mode:'markers', type:'scattergl', name:'Seca',
-          text:s.text, hoverinfo:'text',
-          marker:{ color:toRGBA(CFG.col_seca,0.62), size:5.5, line:{width:0} } },
-        { x:h.x, y:h.y, mode:'markers', type:'scattergl', name:'Húmeda',
-          text:h.text, hoverinfo:'text',
-          marker:{ color:toRGBA(CFG.col_humeda,0.62), size:5.5, line:{width:0} } }
+        { x:s.x, y:s.y, mode:'markers', type:'scatter', name:'Seca',
+          text:s.text, customdata:s.customdata, hoverinfo:'text',
+          marker:{ color:toRGBA(CFG.col_seca,0.62), size:5, line:{width:0} } },
+        { x:h.x, y:h.y, mode:'markers', type:'scatter', name:'Húmeda',
+          text:h.text, customdata:h.customdata, hoverinfo:'text',
+          marker:{ color:toRGBA(CFG.col_humeda,0.62), size:5, line:{width:0} } }
       ];
     }
+
+    function tracesFor(d){ return dataTraces(d).concat([highlightTrace()]); }
 
     function layoutFor(){
       var showleg = (colorMode !== 'q');
       return {
-        height:460, hovermode:'closest',
-        margin:{l:48, r: (colorMode==='q'? 78 : 16), t:10, b:44},
-        font:{family:FS, size:13, color:CFG.col_ink},
+        // Alto compacto: cuatro paneles a la vez en la rejilla 2×2.
+        height:300, hovermode:'closest',
+        margin:{l:36, r: (colorMode==='q'? 52 : 10), t: (showleg? 30 : 8), b:34},
+        font:{family:FS, size:12, color:CFG.col_ink},
         paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
         showlegend:showleg,
-        legend:{orientation:'h', yanchor:'bottom', y:1.02, xanchor:'left', x:0,
-          font:{size:12, family:FS, color:CFG.col_muted}},
+        legend:{orientation:'h', yanchor:'bottom', y:1.0, xanchor:'left', x:0,
+          font:{size:11, family:FS, color:CFG.col_muted}},
         hoverlabel:{bgcolor:CFG.col_surf, bordercolor:CFG.col_border,
-          font:{family:FM, size:12, color:CFG.col_ink}},
-        xaxis:{ title:{text:'Componente 1 (proyección, sin unidades)',
-            font:{family:FS, size:11.5, color:CFG.col_muted}},
+          font:{family:FM, size:11.5, color:CFG.col_ink}},
+        xaxis:{ title:{text:'Comp. 1 (sin unidades)',
+            font:{family:FS, size:10.5, color:CFG.col_muted}},
           gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
-          tickfont:{family:FM, size:10, color:CFG.col_muted},
+          tickfont:{family:FM, size:9, color:CFG.col_muted},
           showticklabels:true },
-        yaxis:{ title:{text:'Componente 2 (proyección, sin unidades)',
-            font:{family:FS, size:11.5, color:CFG.col_muted}},
+        yaxis:{ title:{text:'Comp. 2 (sin unidades)',
+            font:{family:FS, size:10.5, color:CFG.col_muted}},
           gridcolor:CFG.col_border, zeroline:false, linecolor:CFG.col_border,
-          tickfont:{family:FM, size:10, color:CFG.col_muted},
+          tickfont:{family:FM, size:9, color:CFG.col_muted},
           showticklabels:true, scaleanchor:'x', scaleratio:1 },
         modebar:{bgcolor:'rgba(0,0,0,0)', color:CFG.col_muted,
-          activecolor:CFG.col_base},
-        transition:{duration: reduce ? 0 : 300, easing:'cubic-in-out'}
+          activecolor:CFG.col_deep},
+        transition:{duration: reduce ? 0 : 260, easing:'cubic-in-out'}
       };
     }
 
-    var config = { displayModeBar:true, displaylogo:false, responsive:true,
-      modeBarButtonsToRemove:['lasso2d','select2d'] };
-    var dibujado = false;
+    var config = { displayModeBar:false, displaylogo:false, responsive:true };
 
-    function metActual(){ return orden[idx]; }
+    // Estado por panel: div, datos, índice de fecha→fila, índice de traza de
+    // resalte y bandera de dibujado.
+    var paneles = [];   // [{ met, div, d, fIndex, hlIndex, drawn }]
 
-    function actualizarUI(){
-      var met = metActual();
+    orden.forEach(function(met){
+      var slug = SLUG[met];
+      var div = document.getElementById('grafico-embeddings-' + slug);
       var d = CFG.metodos[met];
-      if (nameEl) nameEl.textContent = met;
-      if (silEl){ silEl.textContent = (d && d.sil !== null && d.sil !== undefined)
-        ? d.sil.toFixed(3) : '—'; }
-      dots.forEach(function(dot, k){
-        var on = (k === idx);
-        dot.classList.toggle('is-active', on);
-        dot.setAttribute('aria-current', on ? 'true' : 'false');
+      if (!div || !d) return;
+      var fIndex = {};                 // fecha (str) -> índice de fila
+      for (var i=0;i<d.fecha.length;i++){ fIndex[d.fecha[i]] = i; }
+      paneles.push({ met:met, slug:slug, div:div, d:d, fIndex:fIndex,
+        hlIndex:0, drawn:false });
+      // Etiqueta de silueta del panel.
+      var silNode = document.getElementById('emb-sil-' + slug);
+      if (silNode){ silNode.textContent = 'silueta ' +
+        ((d.sil !== null && d.sil !== undefined) ? d.sil.toFixed(3) : '—'); }
+    });
+    if (!paneles.length) return;
+
+    // Actualiza el aro de resalte de un panel a la fila `row` (o lo limpia).
+    function setHighlight(p, row){
+      if (!p.drawn) return;
+      var x = [], y = [];
+      if (row !== null && row !== undefined && row >= 0){
+        x = [p.d.x[row]]; y = [p.d.y[row]];
+      }
+      try { Plotly.restyle(p.div, { x:[x], y:[y] }, [p.hlIndex]); } catch(e){}
+    }
+
+    // Resalta la misma `fecha` en todos los paneles (solo donde exista).
+    function highlightAll(fecha){
+      paneles.forEach(function(p){
+        var row = (fecha in p.fIndex) ? p.fIndex[fecha] : -1;
+        setHighlight(p, row);
       });
+    }
+    function clearAll(){ paneles.forEach(function(p){ setHighlight(p, -1); }); }
+
+    function wireHover(p){
+      p.div.on('plotly_hover', function(ev){
+        if (!ev || !ev.points || !ev.points.length) return;
+        var pt = ev.points[0];
+        // La fecha viaja como customdata en cada traza de datos; se ignora la
+        // traza de resalte (hoverinfo:skip, no dispara este evento).
+        var fecha = pt.customdata;
+        if (fecha === null || fecha === undefined) return;
+        highlightAll(String(fecha));
+      });
+      p.div.on('plotly_unhover', function(){ clearAll(); });
+    }
+
+    function drawPanel(p){
+      var traces = tracesFor(p.d);
+      p.hlIndex = traces.length - 1;   // la traza de resalte es la última
+      var layout = layoutFor();
+      if (!p.drawn){
+        Plotly.newPlot(p.div, traces, layout, config);
+        p.drawn = true;
+        wireHover(p);
+      } else {
+        Plotly.react(p.div, traces, layout, config);
+      }
+    }
+
+    function actualizarBotones(){
       cbtns.forEach(function(btn){
         var on = (btn.getAttribute('data-color') === colorMode);
         btn.classList.toggle('is-active', on);
@@ -2840,50 +3000,80 @@ JS_EMBED = """
       });
     }
 
-    function render(){
-      var d = CFG.metodos[metActual()];
-      if (!d) return;
-      var traces = tracesFor(d);
-      var layout = layoutFor();
-      if (!dibujado){ Plotly.newPlot(plotEl, traces, layout, config);
-        dibujado = true; }
-      else { Plotly.react(plotEl, traces, layout, config); }
-      actualizarUI();
-      // Reajusta el ancho del div visible tras cambiar de slide/coloración.
+    function renderTodos(){
+      paneles.forEach(drawPanel);
+      actualizarBotones();
+      // Reajusta anchos (los divs pueden haberse dibujado ocultos o con el
+      // ancho anterior a la coloración).
       requestAnimationFrame(function(){
-        try { Plotly.Plots.resize(plotEl); } catch(e){}
+        paneles.forEach(function(p){
+          try { Plotly.Plots.resize(p.div); } catch(e){}
+        });
       });
     }
 
-    function irA(i){ idx = (i + orden.length) % orden.length; render(); }
-
-    if (prevBtn) prevBtn.addEventListener('click', function(){ irA(idx-1); });
-    if (nextBtn) nextBtn.addEventListener('click', function(){ irA(idx+1); });
-    dots.forEach(function(dot){
-      dot.addEventListener('click', function(){
-        var i = parseInt(dot.getAttribute('data-idx'),10) || 0;
-        if (i < orden.length) irA(i);
-      });
-    });
     cbtns.forEach(function(btn){
       btn.addEventListener('click', function(){
-        colorMode = btn.getAttribute('data-color') || 'q';
-        render();
+        var nuevo = btn.getAttribute('data-color') || 'q';
+        if (nuevo === colorMode){ return; }
+        colorMode = nuevo;
+        renderTodos();
       });
     });
 
-    // Teclado: flechas cambian de método cuando el foco está en el carrusel.
-    var carousel = plotEl.parentNode.querySelector('.emb-carousel');
-    if (carousel){
-      carousel.addEventListener('keydown', function(e){
-        if (e.key === 'ArrowLeft'){ e.preventDefault(); irA(idx-1);
-          if (prevBtn) prevBtn.focus(); }
-        else if (e.key === 'ArrowRight'){ e.preventDefault(); irA(idx+1);
-          if (nextBtn) nextBtn.focus(); }
-      });
+    renderTodos();
+  }
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
+"""
+
+
+# ── Script de los contadores animados ("Por los números") ─────────────────────
+# Los números suben de 0 a su valor final al entrar la banda en vista
+# (IntersectionObserver). El valor final ya está en el DOM: bajo
+# prefers-reduced-motion (o sin IntersectionObserver) se deja tal cual, sin
+# animar. La animación (~1.2 s, easeOutCubic) solo se activa cuando el
+# movimiento está permitido; se ejecuta una vez y deja de observar.
+JS_COUNTERS = """
+(function(){
+  function run(){
+    var nums = Array.prototype.slice.call(
+      document.querySelectorAll('.cnt-num'));
+    if (!nums.length) return;
+    var reduce = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Sin animación posible: el número final ya está escrito → no tocar.
+    if (reduce || !('IntersectionObserver' in window)) return;
+
+    function animar(el){
+      var target = parseInt(el.getAttribute('data-target'), 10);
+      if (isNaN(target)) return;
+      var dur = 1200, t0 = null;
+      el.textContent = '0';
+      function paso(ts){
+        if (t0 === null) t0 = ts;
+        var p = Math.min((ts - t0) / dur, 1);
+        var e = 1 - Math.pow(1 - p, 3);   // easeOutCubic
+        el.textContent = String(Math.round(e * target));
+        if (p < 1){ requestAnimationFrame(paso); }
+        else { el.textContent = String(target); }
+      }
+      requestAnimationFrame(paso);
     }
 
-    render();
+    var band = document.querySelector('.numeros');
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){
+        if (en.isIntersecting){
+          nums.forEach(animar);
+          io.disconnect();
+        }
+      });
+    }, { threshold: 0.35 });
+    if (band){ io.observe(band); }
+    else { nums.forEach(animar); }
   }
   if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', run);
@@ -2940,6 +3130,7 @@ def main():
 <script>{JS_TABS}</script>
 <script>{JS_FORECAST}</script>
 <script>{JS_EMBED}</script>
+<script>{JS_COUNTERS}</script>
 </body>
 </html>
 """
