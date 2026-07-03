@@ -1274,46 +1274,10 @@ FUENTES_LOGOS = [
 ]
 
 
-def franja_fuentes(imgs: dict, variante: str = "foot") -> str:
-    """Franja «Fuentes de datos» con los logos + etiqueta de aporte.
-
-    variante='foot'  → bloque para el footer (oscuro), con textos de aporte.
-    variante='strip' → mini-strip claro bajo el hero (solo logos + nombre).
-    """
-    items = []
-    for clave, alt, nombre, aporte in FUENTES_LOGOS:
-        uri = imgs.get(clave)
-        if uri:
-            logo = (f"<img class='src-logo' src='{uri}' alt='{alt}' "
-                    f"loading='lazy'>")
-        else:
-            logo = f"<span class='src-logo-txt' aria-hidden='true'>{nombre}</span>"
-        if variante == "strip":
-            items.append(
-                f"<span class='src-item' title='{alt} · {aporte}'>{logo}</span>")
-        else:
-            items.append(
-                f"<div class='src-item'>{logo}"
-                f"<span class='src-aporte'>{aporte}</span></div>")
-
-    if variante == "strip":
-        return (
-            "<div class='src-strip' aria-label='Fuentes de datos'>"
-            "<span class='src-strip-lab'>Fuentes de datos</span>"
-            f"<div class='src-strip-logos'>{''.join(items)}</div>"
-            "</div>")
-    return (
-        "<div class='src-foot'>"
-        "<h4>Fuentes de datos</h4>"
-        f"<div class='src-foot-grid'>{''.join(items)}</div>"
-        "</div>")
-
-
-# ── Carrusel de logos institucionales ─────────────────────────────────────────
-# (clave_logo, nombre visible, alt). Un slide por institución; el nombre va
-# debajo. Incluye UTEC (equipo) junto a las fuentes de datos. Si un logo falta,
-# el slide degrada a una etiqueta tipográfica (sin romper el carrusel).
-CARRUSEL_LOGOS = [
+# Logos de la cinta (marquee) bajo el hero. Incluye UTEC (equipo) junto a las
+# fuentes de datos. (clave_logo, nombre visible, alt). Si un logo falta, degrada
+# a una etiqueta tipográfica (sin romper la cinta).
+MARQUEE_LOGOS = [
     ("logo_ana", "ANA", "ANA — Autoridad Nacional del Agua"),
     ("logo_senamhi", "SENAMHI", "SENAMHI — Meteorología e Hidrología"),
     ("logo_ecmwf", "ECMWF · Copernicus",
@@ -1324,57 +1288,62 @@ CARRUSEL_LOGOS = [
 ]
 
 
-def bloque_carrusel_logos(imgs: dict) -> str:
-    """Carrusel accesible de logos institucionales (uno por slide + nombre).
+def _marquee_logo_item(clave: str, nombre: str, alt: str, imgs: dict) -> str:
+    """Un logo de la cinta (imagen data-URI o respaldo tipográfico)."""
+    uri = imgs.get(clave)
+    if uri:
+        logo = (f"<img class='mq-logo' src='{uri}' alt='{alt}' "
+                f"loading='lazy'>")
+    else:
+        logo = f"<span class='mq-logo-txt' aria-hidden='true'>{nombre}</span>"
+    return f"<span class='mq-item'>{logo}</span>"
 
-    Auto-rotación suave con pausa en hover; se desactiva bajo
-    prefers-reduced-motion (lo controla el JS_LOGOS). Flechas prev/next, puntos
-    de paginación y foco por teclado. Cada slide es un botón-figura con su logo
-    (data URI) o, si falta, una etiqueta tipográfica de respaldo."""
-    slides, puntos = [], []
-    for i, (clave, nombre, alt) in enumerate(CARRUSEL_LOGOS):
+
+def franja_fuentes_marquee(imgs: dict) -> str:
+    """Cinta «Fuentes de datos»: los logos se desplazan solos en bucle continuo
+    (marquee) bajo el hero. La fila se duplica 2× para un bucle sin costura;
+    máscara de desvanecimiento en los bordes; se atenúan/desaturan en reposo y
+    reviven a color al pasar el cursor. Pausa en hover. Bajo
+    prefers-reduced-motion queda estática y centrada (ver CSS)."""
+    items = "".join(
+        _marquee_logo_item(clave, nombre, alt, imgs)
+        for clave, nombre, alt in MARQUEE_LOGOS)
+    # Duplicado 2× (aria-hidden en la copia) → translateX(-50%) reinicia sin salto.
+    grupo = f"<div class='mq-group' aria-hidden='false'>{items}</div>"
+    grupo_dup = f"<div class='mq-group' aria-hidden='true'>{items}</div>"
+    aria = ("Fuentes de datos: ANA, SENAMHI, ECMWF/Copernicus, NOAA, UTEC")
+    return (
+        "<div class='src-marquee'>"
+        "<span class='src-marquee-lab'>Fuentes de datos</span>"
+        f"<div class='mq-viewport' role='img' aria-label='{aria}'>"
+        f"<div class='mq-track'>{grupo}{grupo_dup}</div>"
+        "</div>"
+        "</div>")
+
+
+def franja_fuentes(imgs: dict, variante: str = "foot") -> str:
+    """Franja «Fuentes de datos» con los logos + etiqueta de aporte.
+
+    variante='foot'  → bloque para el footer (oscuro), con textos de aporte.
+    variante='strip' → cinta en movimiento (marquee) bajo el hero.
+    """
+    if variante == "strip":
+        return franja_fuentes_marquee(imgs)
+    items = []
+    for clave, alt, nombre, aporte in FUENTES_LOGOS:
         uri = imgs.get(clave)
         if uri:
-            logo = (f"<img class='lgc-img' src='{uri}' alt='{alt}' "
+            logo = (f"<img class='src-logo' src='{uri}' alt='{alt}' "
                     f"loading='lazy'>")
         else:
-            logo = (f"<span class='lgc-img-txt' aria-hidden='true'>"
-                    f"{nombre}</span>")
-        activo = " is-active" if i == 0 else ""
-        # aria-hidden en los slides inactivos; el activo queda expuesto.
-        slides.append(
-            f"<figure class='lgc-slide{activo}' role='group'"
-            f" aria-roledescription='slide'"
-            f" aria-label='{i+1} de {len(CARRUSEL_LOGOS)}: {nombre}'"
-            f" aria-hidden='{'false' if i == 0 else 'true'}'>"
-            f"<span class='lgc-logo-wrap'>{logo}</span>"
-            f"<figcaption class='lgc-name'>{nombre}</figcaption></figure>")
-        puntos.append(
-            f"<button type='button' class='lgc-dot{activo}' data-idx='{i}'"
-            f" aria-label='Ir a {nombre}'"
-            f" aria-current='{'true' if i == 0 else 'false'}'></button>")
-
+            logo = f"<span class='src-logo-txt' aria-hidden='true'>{nombre}</span>"
+        items.append(
+            f"<div class='src-item'>{logo}"
+            f"<span class='src-aporte'>{aporte}</span></div>")
     return (
-        "<div class='lgc' aria-roledescription='carrusel'"
-        " aria-label='Instituciones y fuentes de datos'>"
-        "<p class='lgc-lab'>Instituciones y fuentes</p>"
-        "<div class='lgc-stage'>"
-        "<button type='button' class='lgc-arrow lgc-prev'"
-        " aria-label='Logo anterior'>"
-        "<svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'"
-        " focusable='false' fill='none' stroke='currentColor' stroke-width='2.2'"
-        " stroke-linecap='round' stroke-linejoin='round'>"
-        "<path d='M15 5l-7 7 7 7'/></svg></button>"
-        f"<div class='lgc-track' aria-live='polite'>{''.join(slides)}</div>"
-        "<button type='button' class='lgc-arrow lgc-next'"
-        " aria-label='Logo siguiente'>"
-        "<svg viewBox='0 0 24 24' width='20' height='20' aria-hidden='true'"
-        " focusable='false' fill='none' stroke='currentColor' stroke-width='2.2'"
-        " stroke-linecap='round' stroke-linejoin='round'>"
-        "<path d='M9 5l7 7-7 7'/></svg></button>"
-        "</div>"
-        f"<div class='lgc-dots' role='tablist' aria-label='Seleccionar logo'>"
-        f"{''.join(puntos)}</div>"
+        "<div class='src-foot'>"
+        "<h4>Fuentes de datos</h4>"
+        f"<div class='src-foot-grid'>{''.join(items)}</div>"
         "</div>")
 
 
@@ -1405,7 +1374,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
 
     strip_fuentes = franja_fuentes(imgs, "strip")
     foot_fuentes = franja_fuentes(imgs, "foot")
-    carrusel_logos = bloque_carrusel_logos(imgs)
 
     # Pestañas: (id, etiqueta). El orden define tablist y navegación.
     tabs = [
@@ -1459,8 +1427,11 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     for i, (n, r, li, correos) in enumerate(integrantes, start=1):
         foto = imgs.get(f"foto_{i}")
         if foto:
-            avatar = (f"<img class='eq-foto' src='{foto}' alt='Foto de {n}' "
-                      f"loading='lazy'>")
+            # Contenedor cuadrado fijo (flex:0 0 auto) → la <img> lo llena con
+            # object-fit:cover, sin comprimirse ni distorsionarse.
+            avatar = (f"<span class='eq-foto'>"
+                      f"<img class='eq-foto-img' src='{foto}' "
+                      f"alt='Foto de {n}' loading='lazy'></span>")
         else:
             avatar = (f"<span class='eq-foto eq-foto-txt' aria-hidden='true'>"
                       f"{_iniciales(n)}</span>")
@@ -1541,10 +1512,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <section class="reveal" aria-label="Indicadores resumen">
         <p class="eyebrow">Cifras clave · periodo de prueba 2024–2025</p>
         {kpi_html}
-      </section>
-
-      <section class="reveal" aria-label="Instituciones y fuentes de datos">
-        {carrusel_logos}
       </section>
 
       <section class="split reveal">
@@ -2117,7 +2084,7 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .foot-inner {{ max-width:var(--maxw); margin:0 auto;
   padding:clamp(40px,4.6vw,60px) var(--pad-x) clamp(30px,3.4vw,42px);
   display:grid;
-  grid-template-columns:1.15fr 1.35fr 1fr 1fr; gap:clamp(26px,3vw,44px);
+  grid-template-columns:1.7fr 1.3fr 1fr 1fr; gap:clamp(26px,3vw,44px);
   align-items:start; }}
 /* Encabezados de columna: serif editorial con hairline inferior. */
 .foot-h {{ font-family:var(--serif); font-weight:600; color:#EAF3F6;
@@ -2126,41 +2093,49 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .foot-h::after {{ content:""; position:absolute; left:0; bottom:0;
   width:34px; height:2px; border-radius:2px;
   background:linear-gradient(90deg,var(--cyan),var(--accent)); }}
-/* Equipo: tarjetas prolijas (foto grande circular + nombre serif + rol +
-   correos mailto + LinkedIn). Foto ~120px; alineación superior por el mayor
-   contenido (dos correos). */
+/* Equipo: tarjetas prolijas (foto cuadrada→circular sin distorsión + nombre
+   serif + rol + correos mailto + LinkedIn). La foto vive en un contenedor
+   cuadrado FIJO (flex:0 0 auto) para que nunca se comprima ni se estire; la
+   columna de texto (min-width:0, flex:1) respira con gap holgado. */
 .equipo {{ list-style:none; padding:0; margin:0; display:flex;
-  flex-direction:column; gap:14px; }}
-.eq-card {{ display:flex; align-items:flex-start; gap:18px;
-  padding:16px 18px; border-radius:14px;
+  flex-direction:column; gap:16px; }}
+.eq-card {{ display:flex; align-items:center; gap:20px;
+  padding:18px 20px; border-radius:14px;
   background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.08);
   transition:background .18s ease, border-color .18s ease; }}
 .eq-card:hover {{ background:rgba(255,255,255,.06);
   border-color:rgba(27,168,196,.35); }}
-.eq-foto {{ width:clamp(104px,9vw,120px); height:clamp(104px,9vw,120px);
-  border-radius:50%; flex:none; object-fit:cover; object-position:center 22%;
+/* Contenedor cuadrado fijo: NUNCA se comprime ni se estira (flex:0 0 auto +
+   aspect-ratio de refuerzo) → la foto no se distorsiona. */
+.eq-foto {{ flex:0 0 auto; width:116px; height:116px; aspect-ratio:1/1;
+  border-radius:50%; overflow:hidden; position:relative;
   display:inline-flex; align-items:center; justify-content:center;
   background:#0E3345; box-shadow:0 6px 20px rgba(0,0,0,.34);
   outline:2px solid rgba(27,168,196,.45); outline-offset:3px;
   border:3px solid #123a4e; }}
+/* La imagen llena el contenedor cuadrado sin deformarse. */
+.eq-foto-img {{ width:100%; height:100%; object-fit:cover;
+  object-position:center; display:block; }}
 .eq-foto-txt {{ font-family:var(--mono); font-weight:600;
-  font-size:clamp(26px,3vw,34px); color:var(--cyan); letter-spacing:.02em; }}
-.eq-text {{ display:flex; flex-direction:column; min-width:0; gap:3px; }}
+  font-size:clamp(28px,3vw,36px); color:var(--cyan); letter-spacing:.02em; }}
+/* Columna de texto: flex:1 + min-width:0 para que respire y no se apretuje. */
+.eq-text {{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0;
+  gap:5px; }}
 .eq-nombre {{ font-family:var(--serif); color:#fff; font-weight:600;
-  font-size:15.5px; line-height:1.22; }}
-.eq-rol {{ color:#9DB3BF; font-size:12.5px; line-height:1.4; margin-bottom:3px; }}
+  font-size:16.5px; line-height:1.28; letter-spacing:-.005em; }}
+.eq-rol {{ color:#9DB3BF; font-size:12.5px; line-height:1.45; margin-bottom:5px; }}
 /* Correos: enlaces mailto discretos, mono, uno por línea. */
-.eq-mails {{ display:flex; flex-direction:column; gap:1px; margin-top:2px; }}
+.eq-mails {{ display:flex; flex-direction:column; gap:3px; margin-top:2px; }}
 .eq-mail {{ font-family:var(--mono); font-size:11.5px; color:#93AAB6;
   text-decoration:none; letter-spacing:.005em; overflow-wrap:anywhere;
-  max-width:100%; transition:color .16s ease; }}
+  max-width:100%; line-height:1.45; transition:color .16s ease; }}
 .eq-mail:hover {{ color:#CFE0E8; text-decoration:underline;
   text-underline-offset:2px; }}
 .eq-mail:focus-visible {{ outline:2px solid var(--cyan); outline-offset:2px;
   border-radius:3px; }}
-.eq-li {{ display:inline-flex; align-items:center; gap:6px; margin-top:7px;
+.eq-li {{ display:inline-flex; align-items:center; gap:6px; margin-top:9px;
   color:var(--cyan); font-size:12.5px; font-weight:600; text-decoration:none;
-  width:max-content; transition:color .16s ease; }}
+  width:max-content; max-width:100%; transition:color .16s ease; }}
 .eq-li:hover {{ color:#5FD1E6; text-decoration:underline;
   text-underline-offset:2px; }}
 .eq-li:focus-visible {{ outline:2px solid var(--cyan); outline-offset:3px;
@@ -2197,26 +2172,49 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 .foot-logo-txt {{ color:#fff; }}
 
 /* ── Franja «Fuentes de datos» ────────────────────────────────────── */
-/* Mini-strip claro bajo el hero (solo logos + etiqueta). */
-.src-strip {{ max-width:var(--maxw); margin:0 auto;
-  padding:16px var(--pad-x) 18px;
-  display:flex; align-items:center; gap:clamp(14px,2.4vw,30px);
-  flex-wrap:wrap; border-top:1px solid var(--border); }}
-.src-strip-lab {{ font-size:11px; font-weight:600; text-transform:uppercase;
-  letter-spacing:.09em; color:var(--muted); flex:none; }}
-.src-strip-logos {{ display:flex; align-items:center; flex-wrap:wrap;
-  gap:clamp(16px,2.6vw,34px); }}
-.src-strip .src-item {{ display:inline-flex; align-items:center; }}
-.src-strip .src-logo {{ height:36px; width:auto; display:block;
-  opacity:.62; filter:saturate(.55); transition:opacity .18s ease,
-  filter .18s ease; }}
-.src-strip .src-item:hover .src-logo {{ opacity:1; filter:none; }}
-.src-strip .src-text .src-logo-txt {{ font-family:var(--mono); font-size:13px;
-  font-weight:600; color:var(--muted); letter-spacing:.02em;
-  border:1px solid var(--border); border-radius:7px; padding:8px 12px;
-  line-height:1; transition:color .18s ease, border-color .18s ease; }}
-.src-strip .src-text:hover .src-logo-txt {{ color:var(--deep);
-  border-color:#B4C4CE; }}
+/* Cinta en movimiento (marquee) bajo el hero: los logos se desplazan solos en
+   bucle continuo, se atenúan/desaturan en reposo y reviven a color al pasar el
+   cursor. Máscara de desvanecimiento en los bordes; pausa en hover. */
+.src-marquee {{ max-width:var(--maxw); margin:0 auto;
+  padding:18px var(--pad-x) 20px; border-top:1px solid var(--border); }}
+.src-marquee-lab {{ display:block; font-size:11px; font-weight:600;
+  text-transform:uppercase; letter-spacing:.11em; color:var(--muted);
+  margin:0 0 14px; }}
+/* Viewport: recorta el desbordamiento y desvanece los extremos con una máscara. */
+.mq-viewport {{ position:relative; overflow:hidden; width:100%;
+  -webkit-mask-image:linear-gradient(90deg, transparent 0, #000 6%,
+    #000 94%, transparent 100%);
+  mask-image:linear-gradient(90deg, transparent 0, #000 6%,
+    #000 94%, transparent 100%); }}
+/* Pista: dos grupos idénticos en fila; translateX(-50%) reinicia sin costura. */
+.mq-track {{ display:flex; width:max-content;
+  animation:marquee 32s linear infinite; }}
+.mq-group {{ display:flex; align-items:center; flex:none; }}
+.mq-item {{ display:inline-flex; align-items:center; justify-content:center;
+  margin:0 28px; flex:none; }}
+.mq-logo {{ height:40px; width:auto; display:block;
+  filter:grayscale(1); opacity:.6;
+  transition:filter .22s ease, opacity .22s ease, transform .22s ease; }}
+.mq-item:hover .mq-logo {{ filter:none; opacity:1; transform:translateY(-1px); }}
+.mq-logo-txt {{ font-family:var(--mono); font-size:14px; font-weight:600;
+  color:var(--muted); letter-spacing:.02em; border:1px solid var(--border);
+  border-radius:7px; padding:9px 13px; line-height:1;
+  filter:grayscale(1); opacity:.6;
+  transition:color .22s ease, border-color .22s ease, opacity .22s ease,
+    transform .22s ease; }}
+.mq-item:hover .mq-logo-txt {{ color:var(--deep); border-color:#B4C4CE;
+  filter:none; opacity:1; transform:translateY(-1px); }}
+/* Pausa la cinta al pasar el cursor por el conjunto. */
+.src-marquee:hover .mq-track {{ animation-play-state:paused; }}
+@keyframes marquee {{ from {{ transform:translateX(0); }}
+  to {{ transform:translateX(-50%); }} }}
+/* Sin animación: fila estática centrada (solo el primer grupo, ancho auto). */
+@media (prefers-reduced-motion:reduce) {{
+  .mq-track {{ animation:none; width:100%; justify-content:center;
+    flex-wrap:wrap; }}
+  .mq-group[aria-hidden="true"] {{ display:none; }}
+  .mq-item {{ margin:8px 20px; }}
+}}
 
 /* Bloque de fuentes en el footer (fondo oscuro). */
 .src-foot h4 {{ color:var(--cyan); font-size:11.5px; text-transform:uppercase;
@@ -2232,50 +2230,6 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   border:1px solid rgba(255,255,255,.18); border-radius:6px; padding:9px 11px;
   line-height:1; min-width:96px; text-align:center; }}
 .src-aporte {{ font-size:12.5px; color:#B4C6D0; line-height:1.45; }}
-
-/* ── Carrusel de logos institucionales (Resumen) ──────────────────── */
-.lgc {{ border:1px solid var(--border); border-radius:var(--radius);
-  background:linear-gradient(180deg,#FFFFFF 0%,#F4F8FA 100%);
-  box-shadow:var(--shadow-sm); padding:20px clamp(16px,2.4vw,28px) 18px; }}
-.lgc-lab {{ font-size:11px; font-weight:600; text-transform:uppercase;
-  letter-spacing:.11em; color:var(--muted); text-align:center;
-  margin:0 0 12px; }}
-.lgc-stage {{ display:flex; align-items:center; justify-content:center;
-  gap:clamp(8px,2vw,20px); }}
-.lgc-track {{ position:relative; flex:1 1 auto; height:118px;
-  display:flex; align-items:center; justify-content:center; overflow:hidden; }}
-.lgc-slide {{ position:absolute; inset:0; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:12px;
-  opacity:0; visibility:hidden; transform:translateX(14px);
-  transition:opacity .5s ease, transform .5s ease; pointer-events:none; }}
-.lgc-slide.is-active {{ opacity:1; visibility:visible; transform:none;
-  pointer-events:auto; }}
-.lgc-logo-wrap {{ display:inline-flex; align-items:center; justify-content:center;
-  height:66px; }}
-.lgc-img {{ max-height:66px; max-width:min(260px,60vw); width:auto; height:auto;
-  object-fit:contain; display:block; }}
-.lgc-img-txt {{ font-family:var(--mono); font-weight:600; font-size:20px;
-  color:var(--deep); letter-spacing:.03em; border:1.5px solid var(--border);
-  border-radius:9px; padding:14px 18px; line-height:1; }}
-.lgc-name {{ font-family:var(--sans); font-weight:600; font-size:13px;
-  letter-spacing:.02em; color:var(--deep); text-align:center; }}
-.lgc-arrow {{ appearance:none; flex:none; cursor:pointer;
-  width:38px; height:38px; border-radius:50%; display:inline-flex;
-  align-items:center; justify-content:center; color:var(--deep);
-  background:var(--surf); border:1.5px solid var(--border);
-  box-shadow:var(--shadow-sm);
-  transition:color .16s ease, border-color .16s ease, background .16s ease; }}
-.lgc-arrow:hover {{ color:var(--accent); border-color:#B4C4CE; background:#fff; }}
-.lgc-arrow:focus-visible {{ outline:none; border-color:var(--accent);
-  box-shadow:0 0 0 3px rgba(11,110,140,.18); }}
-.lgc-dots {{ display:flex; align-items:center; justify-content:center; gap:9px;
-  margin-top:14px; }}
-.lgc-dot {{ appearance:none; cursor:pointer; width:8px; height:8px; padding:0;
-  border-radius:50%; border:0; background:#C6D3DB;
-  transition:background .18s ease, transform .18s ease; }}
-.lgc-dot:hover {{ background:#9DB3BF; }}
-.lgc-dot.is-active {{ background:var(--accent); transform:scale(1.35); }}
-.lgc-dot:focus-visible {{ outline:2px solid var(--accent); outline-offset:3px; }}
 
 /* ── Callout editorial (hallazgo ENSO: R² + supresión mutua) ──────── */
 .callout {{ position:relative; grid-column:1;
@@ -2394,8 +2348,17 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
   .fc-select {{ min-width:0; width:100%; }}
   .fc-field {{ flex:1 1 44%; }}
   .fc-readout {{ margin-left:0; text-align:left; flex:1 1 100%; }}
-  .src-strip {{ gap:12px; }}
-  .src-strip .src-logo {{ height:30px; }}
+  .mq-logo {{ height:32px; }}
+  .mq-item {{ margin:0 20px; }}
+}}
+/* Tarjeta de equipo en móvil: apila (foto centrada arriba, texto centrado
+   debajo). En ningún ancho el texto se monta sobre la foto ni se corta. */
+@media (max-width:560px) {{
+  .eq-card {{ flex-direction:column; align-items:center; text-align:center;
+    gap:14px; padding:20px 18px; }}
+  .eq-text {{ align-items:center; width:100%; }}
+  .eq-mails {{ align-items:center; }}
+  .eq-li {{ margin-left:auto; margin-right:auto; }}
 }}
 """
 
@@ -2929,79 +2892,6 @@ JS_EMBED = """
 """
 
 
-# ── Script del carrusel de logos institucionales ──────────────────────────────
-# Auto-rotación suave (pausa en hover/foco); se DESACTIVA bajo
-# prefers-reduced-motion. Flechas prev/next, puntos y navegación por teclado.
-JS_LOGOS = """
-(function(){
-  function run(){
-    var root = document.querySelector('.lgc');
-    if (!root) return;
-    var slides = Array.prototype.slice.call(root.querySelectorAll('.lgc-slide'));
-    var dots = Array.prototype.slice.call(root.querySelectorAll('.lgc-dot'));
-    if (!slides.length) return;
-    var prev = root.querySelector('.lgc-prev');
-    var next = root.querySelector('.lgc-next');
-    var reduce = window.matchMedia &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var idx = 0, timer = null;
-    var DELAY = 4200;
-
-    function show(i){
-      idx = (i + slides.length) % slides.length;
-      slides.forEach(function(s, k){
-        var on = (k === idx);
-        s.classList.toggle('is-active', on);
-        s.setAttribute('aria-hidden', on ? 'false' : 'true');
-      });
-      dots.forEach(function(d, k){
-        var on = (k === idx);
-        d.classList.toggle('is-active', on);
-        d.setAttribute('aria-current', on ? 'true' : 'false');
-      });
-    }
-    function go(delta){ show(idx + delta); }
-
-    function stop(){ if (timer){ clearInterval(timer); timer = null; } }
-    function start(){
-      if (reduce) return;              // respeta prefers-reduced-motion
-      stop();
-      timer = setInterval(function(){ go(1); }, DELAY);
-    }
-    // Reinicia el temporizador tras una interacción manual (mejor UX).
-    function bump(){ if (!reduce){ start(); } }
-
-    if (prev) prev.addEventListener('click', function(){ go(-1); bump(); });
-    if (next) next.addEventListener('click', function(){ go(1); bump(); });
-    dots.forEach(function(d){
-      d.addEventListener('click', function(){
-        var i = parseInt(d.getAttribute('data-idx'), 10) || 0;
-        show(i); bump();
-      });
-    });
-
-    // Teclado: flechas cuando el foco está dentro del carrusel.
-    root.addEventListener('keydown', function(e){
-      if (e.key === 'ArrowLeft'){ e.preventDefault(); go(-1); bump(); }
-      else if (e.key === 'ArrowRight'){ e.preventDefault(); go(1); bump(); }
-    });
-
-    // Pausa en hover y mientras el foco esté dentro; reanuda al salir.
-    root.addEventListener('mouseenter', stop);
-    root.addEventListener('mouseleave', start);
-    root.addEventListener('focusin', stop);
-    root.addEventListener('focusout', start);
-
-    show(0);
-    start();
-  }
-  if (document.readyState === 'loading')
-    document.addEventListener('DOMContentLoaded', run);
-  else run();
-})();
-"""
-
-
 def main():
     (serie, metr, meta, subs, lim, fcast, mens, enso, acf, ccf,
      estaciones, enso_abl, enso_extra, emb_coords, emb_sil) = cargar()
@@ -3050,7 +2940,6 @@ def main():
 <script>{JS_TABS}</script>
 <script>{JS_FORECAST}</script>
 <script>{JS_EMBED}</script>
-<script>{JS_LOGOS}</script>
 </body>
 </html>
 """
