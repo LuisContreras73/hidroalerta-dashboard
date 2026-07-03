@@ -2135,12 +2135,12 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       {hidro_svg}
       <div class="hero-inner">
         <p class="eyebrow eyebrow-cyan hero-rev" data-rev="1">Concurso ANA 2026 · Río Chancay–Huaral, Perú</p>
-        <h1 class="hero-title hero-rev" data-rev="2">Anticipar la crecida:
-          pronóstico de caudal y alerta temprana en una cuenca andino-costera.</h1>
+        <h1 class="hero-title hero-rev" data-rev="2">Pronóstico de caudal y alerta
+          temprana de crecidas en una cuenca andino-costera.</h1>
         <p class="hero-sub hero-rev" data-rev="3">Un sistema que emite pronóstico
           probabilístico de caudal de forma continua sobre la estación de aforo
           {est['nombre']} y verifica su habilidad frente al aforo observado, con la
-          mira puesta en detectar crecidas con días de anticipación.</p>
+          mira puesta en detectar crecidas con días de ventaja.</p>
       </div>
       {strip_fuentes}
     </div>

@@ -43,7 +43,7 @@ def _capitulos(meta) -> list:
                  "toda una provincia.",
                  "Sígalo con nosotros: desde las nubes sobre los Andes hasta la crecida que "
                  "amenaza el valle. Entender ese recorrido es el primer paso para "
-                 "<b>anticiparlo</b>.",
+                 "<b>pronosticarla y dar el aviso a tiempo</b>.",
              ]),
         dict(id="cuenca", num="02", eyebrow="La cuenca, vista desde arriba",
              titulo="Tres mil kilómetros cuadrados de montaña y valle",
@@ -100,7 +100,7 @@ def _capitulos(meta) -> list:
                  "lluvia, la temperatura, el agua del suelo y la vegetación.",
                  "Aquí se <b>separan y se vuelven a integrar</b>. Cada plano cubre la misma "
                  "cuenca; apilados, son la memoria física que el modelo aprende a leer para "
-                 "anticipar el caudal.",
+                 "pronosticar el caudal.",
              ]),
         dict(id="yaku", num="08", eyebrow="Marzo 2023 · Ciclón Yaku",
              titulo="Cuando el río creció de verdad",
@@ -112,14 +112,14 @@ def _capitulos(meta) -> list:
                  "<b>113 m³/s el 15 de marzo</b> —más de seis veces lo normal—. Es "
                  "exactamente el tipo de crecida que un sistema de alerta debe ver venir.",
              ]),
-        dict(id="alerta", num="09", eyebrow="Anticipar el agua",
+        dict(id="alerta", num="09", eyebrow="Del pronóstico al aviso",
              titulo="Del viaje del agua a la alerta temprana",
              parrafos=[
                  f"A la salida de la cuenca, la estación <b>{est.get('nombre','Santo Domingo')}</b> "
                  f"mide el caudal que llega al valle. Cuando supera el <b>umbral Q90 = "
                  f"{umbral:.1f} m³/s</b>, hablamos de crecida peligrosa.",
-                 "El modelo <b>RA-TFT</b> sostiene la habilidad de pronóstico a varios días de "
-                 "anticipación: cada día ganado es tiempo para alertar, evacuar o manejar el "
+                 "El modelo <b>RA-TFT</b> sostiene la habilidad de pronóstico con varios días de "
+                 "ventaja: cada día ganado es tiempo para alertar, evacuar o manejar el "
                  "riego. Ese es el destino del viaje: <b>convertir el agua en información y la "
                  "información en protección</b>.",
              ]),
@@ -152,7 +152,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
     # Config mínima al JS (colores + parámetros del terreno). Todo lo demás por fetch.
     cfg = {
         "bounds": None,          # lo trae terrain_meta.json
-        "exag": 4.0,             # exageración vertical del relieve
+        "exag": 4.2,             # exageración vertical del relieve (profundidad)
         "tex": {
             "dem": "media/terrain/dem_rgb.png",
             "satellite": "media/terrain/satellite.png",
@@ -212,7 +212,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
             {leaderboard_div}
           </div>
           <div class="sm-plot-card">
-            <p class="sm-plot-cap">Pronóstico probabilístico anticipando el cruce del umbral</p>
+            <p class="sm-plot-cap">Pronóstico probabilístico frente al umbral de alerta de crecida</p>
             {forecast_div}
           </div>
         </div>
@@ -250,6 +250,8 @@ CSS = r"""
 .sm-stage{position:sticky;top:0;height:100vh;overflow:hidden;z-index:0;
   background:radial-gradient(120% 90% at 50% 8%,#0e2836 0%,#06121a 70%);}
 .sm-deck,.sm-globe,.sm-fallback{position:absolute;inset:0;width:100%;height:100%;}
+/* el gesto vertical hace scroll de página (avanza capítulos); el horizontal gira el 3D */
+.sm-deck,.sm-globe{touch-action:pan-y;}
 .sm-deck canvas{outline:none!important;}
 .sm-globe{display:none;}
 .sm-fallback{object-fit:cover;opacity:0;transition:opacity .6s ease;pointer-events:none;}
@@ -396,8 +398,8 @@ JS = r"""
   // Escenas por capítulo: cámara + capas + timelapse.
   var SCENES={
     origen:   {globe:true},
-    cuenca:   {tex:'satellite',pitch:0, bearing:0,  view:'basin', reveal:0, subs:true},
-    relieve:  {tex:'satellite',pitch:52,bearing:-16,view:'basin', reveal:0.35},
+    cuenca:   {flat2d:true, pitch:0, bearing:0,  view:'basin', reveal:0, subs:true},
+    relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true, orbit:true},
     cabeceras:{tex:'satellite',pitch:56,bearing:-22,view:'head',  reveal:1, rivers:true,points:true,heads:true,orbit:true},
     clima:    {tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.7,rivers:true,heads:true,tl:'clima'},
     invisible:{tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.6,rivers:true,tl:'era5'},
@@ -444,6 +446,19 @@ JS = r"""
     if(!D) return [];
     var L=[];
     if(scene.stack) return stackLayers();
+    // Capítulo 2: mapa 2D plano (satélite + subcuencas al mismo z=0 → alinean perfecto).
+    if(scene.flat2d){
+      L.push(new deck.BitmapLayer({id:'flatbase', image:TEX.satellite, bounds:BOUNDS,
+        opacity:1, material:false}));   // material:false = sin iluminación (evita sobreexposición)
+      if(scene.subs && D.subs){
+        L.push(new deck.GeoJsonLayer({id:'subs2d', data:D.subs, stroked:true, filled:true, material:false,
+          getFillColor:function(f){var e=f.properties.elev||0;
+            var c=e<1500?[127,211,227]:e<3000?[63,169,196]:e<4200?[11,110,140]:[10,61,84];
+            return [c[0],c[1],c[2],64];},
+          getLineColor:[255,255,255,210], lineWidthUnits:'pixels', getLineWidth:1.5}));
+      }
+      return L;
+    }
     L.push(new deck.TerrainLayer({
       id:'terrain', minZoom:0, maxZoom:14, bounds:BOUNDS,
       elevationData:TEX.dem, texture:currentTexture(),
@@ -713,7 +728,7 @@ JS = r"""
       hideControl(); $('sm-hydro').hidden=true; showPlots(false); orbit=false; stopOrbit();
       spread=0;
       var vs=views().stack;
-      tweenTo({longitude:vs.longitude,latitude:vs.latitude,zoom:vs.zoom,pitch:s.pitch,bearing:s.bearing}, curCap? 1600:0);
+      tweenTo({longitude:vs.longitude,latitude:vs.latitude,zoom:vs.zoom,pitch:s.pitch,bearing:s.bearing}, curCap? 1900:0);
       tweenSpread(1);
       if($('sm-stack-lab')) $('sm-stack-lab').textContent='Integrar capas';
       return;
@@ -727,7 +742,7 @@ JS = r"""
     orbit=!!s.orbit; if(!orbit) stopOrbit();
     // cámara + revelado + capas
     var v=views()[s.view]||views().basin;
-    tweenTo({longitude:v.longitude,latitude:v.latitude,zoom:v.zoom,pitch:s.pitch||0,bearing:s.bearing||0}, curCap? 1600:0);
+    tweenTo({longitude:v.longitude,latitude:v.latitude,zoom:v.zoom,pitch:s.pitch||0,bearing:s.bearing||0}, curCap? 1900:0);
     tweenReveal(s.reveal!=null?s.reveal:0);
     relayers();
   }
@@ -742,13 +757,13 @@ JS = r"""
     DECODER={rScaler:DECODER.rScaler*EXAG, gScaler:DECODER.gScaler*EXAG, bScaler:DECODER.bScaler*EXAG, offset:(DECODER.offset||0)*EXAG};
     view=Object.assign({}, views().basin, {pitch:0,bearing:0,minZoom:7.2,maxZoom:12.5,minPitch:0,maxPitch:78});
     var lighting=new deck.LightingEffect({
-      amb:new deck.AmbientLight({color:[255,255,255],intensity:1.2}),
-      sun:new deck.DirectionalLight({color:[255,246,228],intensity:1.2,direction:[-1,-3,-1.2]})
+      amb:new deck.AmbientLight({color:[236,246,252],intensity:1.1}),
+      sun:new deck.DirectionalLight({color:[255,244,224],intensity:1.45,direction:[-0.8,-2.6,-1.2]})
     });
     try{
       deckgl=new deck.DeckGL({
         container:'sm-deck', views:[new deck.MapView({repeat:false})],
-        viewState:view, controller:{dragRotate:true,touchRotate:true,doubleClickZoom:false,scrollZoom:{speed:0.02,smooth:true},inertia:220},
+        viewState:view, controller:{dragRotate:true,touchRotate:true,dragPan:true,doubleClickZoom:false,scrollZoom:false,touchZoom:false,inertia:220},
         effects:[lighting], layers:buildLayers(),
         parameters:{clearColor:[0.024,0.07,0.10,0]},
         onViewStateChange:function(e){ view=e.viewState; if(tweenRAF){cancelAnimationFrame(tweenRAF);tweenRAF=null;} stopOrbit(); apply(); },
