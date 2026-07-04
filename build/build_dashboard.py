@@ -771,59 +771,72 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
     # que la leyenda coincida exactamente con lo dibujado.
     clima_rows = ""
     if clima_leg:
-        clima_rows = (f'<b style="color:{COL_DEEP};letter-spacing:.06em;'
-                      f'text-transform:uppercase;font-size:10.5px;'
-                      f'display:inline-block;margin-top:6px">Clima (SENAMHI)</b><br>')
-        for color, glosa in clima_leg:
-            brd = ("border:1px solid #C9D6DE;"
-                   if str(color).lower() == "#ffffff" else "")
-            clima_rows += (
-                f'<span style="display:inline-block;width:12px;height:12px;'
-                f'background:{color};{brd}border-radius:2px;'
-                f'vertical-align:middle"></span> {glosa}<br>')
+        items = "".join(
+            f'<span><span class="mapleg-sw" style="background:{color};'
+            f'{"border:1px solid #C9D6DE;" if str(color).lower()==chr(35)+"ffffff" else ""}"></span>'
+            f'{glosa}</span>' for color, glosa in clima_leg)
+        clima_rows = ('<div class="mapleg-sec"><span class="mapleg-h">Clima (SENAMHI)</span>'
+                      f'<div class="mapleg-grid">{items}</div></div>')
     lc_rows = ""
     if lc_leg:
-        lc_rows = (f'<b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;'
-                   f'font-size:10.5px;display:inline-block;margin-top:6px">Cobertura (WorldCover)</b><br>')
-        for x in lc_leg:
-            lc_rows += (f'<span style="display:inline-block;width:12px;height:12px;'
-                        f'background:{x["color"]};border-radius:2px;vertical-align:middle"></span> '
-                        f'{x["nombre"]} ({x["pct"]:g}%)<br>')
+        items = "".join(
+            f'<span><span class="mapleg-sw" style="background:{x["color"]}"></span>'
+            f'{x["nombre"]} ({x["pct"]:g}%)</span>' for x in lc_leg)
+        lc_rows = ('<div class="mapleg-sec"><span class="mapleg-h">Cobertura (WorldCover)</span>'
+                   f'<div class="mapleg-grid">{items}</div></div>')
+    # Estilo de la leyenda (coherente con las tarjetas del recorrido: IBM Plex,
+    # bordes redondeados, barra de elevación como la del storymap). Colapsable.
+    leyenda_css = f"""
+    <style>
+    .mapleg{{position:absolute;bottom:16px;left:12px;z-index:9999;
+      font-family:'IBM Plex Sans',system-ui,sans-serif;color:{COL_INK};max-width:212px;}}
+    .mapleg details{{background:rgba(255,255,255,0.94);border:1px solid {COL_BORDER};
+      border-radius:12px;box-shadow:0 6px 22px rgba(10,61,84,.16);
+      -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);overflow:hidden;}}
+    .mapleg summary{{cursor:pointer;list-style:none;padding:9px 13px;font-size:10.5px;
+      font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:{COL_DEEP};
+      display:flex;align-items:center;justify-content:space-between;user-select:none;}}
+    .mapleg summary::-webkit-details-marker{{display:none;}}
+    .mapleg summary::after{{content:'\\2013';color:{COL_ACCENT};font-weight:700;font-size:13px;}}
+    .mapleg details:not([open]) summary::after{{content:'+';}}
+    .mapleg-body{{padding:0 13px 12px;max-height:52vh;overflow:auto;font-size:12px;line-height:1.45;}}
+    .mapleg-sec{{margin-top:10px;}}
+    .mapleg-h{{display:block;font-size:9.5px;font-weight:600;letter-spacing:.07em;
+      text-transform:uppercase;color:{COL_MUTED};margin-bottom:5px;}}
+    .mapleg-bar{{height:9px;border-radius:5px;}}
+    .mapleg-scale{{display:flex;justify-content:space-between;font-size:10px;color:{COL_MUTED};margin-top:3px;}}
+    .mapleg-grid{{display:grid;grid-template-columns:1fr;gap:4px;}}
+    .mapleg-grid>span{{display:flex;align-items:center;gap:8px;}}
+    .mapleg-sw{{width:12px;height:12px;border-radius:3px;flex:0 0 auto;}}
+    .mapleg-dot{{font-size:14px;line-height:1;flex:0 0 auto;width:12px;text-align:center;}}
+    .mapleg-ln{{width:16px;height:0;border-top:3px solid {COL_CYAN};flex:0 0 auto;}}
+    </style>"""
+    m.get_root().header.add_child(folium.Element(leyenda_css))
     leyenda = f"""
-    <div style="position:absolute;bottom:18px;left:12px;z-index:9999;
-      background:rgba(255,255,255,0.95);padding:10px 13px;border-radius:10px;
-      box-shadow:0 1px 8px rgba(10,61,84,.16);
-      font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:12px;
-      line-height:1.55;color:{COL_INK};border:1px solid {COL_BORDER};
-      max-width:190px;max-height:calc(100% - 40px);overflow:auto">
-      <b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;
-        font-size:10.5px">Elevación (m)</b><br>
-      <span style="display:inline-block;width:12px;height:12px;background:#7FD3E3;
-        border-radius:2px;vertical-align:middle"></span> &lt; 1 000<br>
-      <span style="display:inline-block;width:12px;height:12px;background:#3FA9C4;
-        border-radius:2px;vertical-align:middle"></span> 1 000 – 2 500<br>
-      <span style="display:inline-block;width:12px;height:12px;background:{COL_ACCENT};
-        border-radius:2px;vertical-align:middle"></span> 2 500 – 3 800<br>
-      <span style="display:inline-block;width:12px;height:12px;background:{COL_DEEP};
-        border-radius:2px;vertical-align:middle"></span> &gt; 3 800<br>
-      <b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;
-        font-size:10.5px;display:inline-block;margin-top:6px">Puntos</b><br>
-      <span style="color:{COL_CRIT};font-size:15px;vertical-align:middle">&#9679;</span>
-        Hidrométrica (salida)<br>
-      <span style="color:{COL_ACCENT};font-size:15px;vertical-align:middle">&#9679;</span>
-        Hidrométrica<br>
-      <span style="color:{COL_WARN};font-size:15px;vertical-align:middle">&#9670;</span>
-        Meteorológica (lluvia)<br>
-      <span style="color:{COL_CYAN};font-size:15px;vertical-align:middle">&#9679;</span>
-        Cuerpo de agua<br>
-      <span style="display:inline-block;width:16px;height:0;
-        border-top:3px solid {COL_CYAN};vertical-align:middle;
-        margin:0 3px 3px 0"></span> Ríos principales<br>
-      <span style="display:inline-block;width:12px;height:12px;background:#e8f4f8;
-        border:1px solid #9fc7d6;border-radius:2px;vertical-align:middle"></span>
-        Glaciares<br>
-      {clima_rows}
-      {lc_rows}
+    <div class="mapleg">
+      <details open>
+        <summary>Leyenda del mapa</summary>
+        <div class="mapleg-body">
+          <div class="mapleg-sec">
+            <span class="mapleg-h">Relieve · elevación</span>
+            <div class="mapleg-bar" style="background:linear-gradient(90deg,#7FD3E3,#3FA9C4,{COL_ACCENT},{COL_DEEP})"></div>
+            <div class="mapleg-scale"><span>litoral</span><span>cabecera · 5 242 m</span></div>
+          </div>
+          <div class="mapleg-sec">
+            <span class="mapleg-h">Estaciones y agua</span>
+            <div class="mapleg-grid">
+              <span><span class="mapleg-dot" style="color:{COL_CRIT}">&#9679;</span> Hidrométrica (salida)</span>
+              <span><span class="mapleg-dot" style="color:{COL_ACCENT}">&#9679;</span> Hidrométrica</span>
+              <span><span class="mapleg-dot" style="color:{COL_WARN}">&#9670;</span> Meteorológica</span>
+              <span><span class="mapleg-dot" style="color:{COL_CYAN}">&#9679;</span> Cuerpo de agua</span>
+              <span><span class="mapleg-ln"></span> Ríos principales</span>
+              <span><span class="mapleg-sw" style="background:#e8f4f8;border:1px solid #9fc7d6"></span> Glaciares</span>
+            </div>
+          </div>
+          {clima_rows}
+          {lc_rows}
+        </div>
+      </details>
     </div>"""
     m.get_root().html.add_child(folium.Element(leyenda))
 
