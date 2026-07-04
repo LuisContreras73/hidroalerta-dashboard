@@ -1,0 +1,42 @@
+{
+  "flood": {
+    "antes": {
+      "fecha": "2022-12-14",
+      "nubes": 6.41,
+      "sensor": "Sentinel-2"
+    },
+    "despues": {
+      "fecha": "2023-04-28",
+      "nubes": 0.96,
+      "sensor": "Sentinel-2"
+    },
+    "bounds": [
+      -77.32,
+      -11.62,
+      -77.12,
+      -11.46
+    ],
+    "w": 1000,
+    "h": 814
+  },
+  "agri": {
+    "antes": {
+      "fecha": "2017-06-13",
+      "nubes": 27.6,
+      "sensor": "Sentinel-2"
+    },
+    "despues": {
+      "fecha": "2025-10-04",
+      "nubes": 7.88,
+      "sensor": "Sentinel-2"
+    },
+    "bounds": [
+      -77.32,
+      -11.62,
+      -77.12,
+      -11.46
+    ],
+    "w": 1000,
+    "h": 814
+  }
+}

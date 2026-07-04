@@ -1724,6 +1724,83 @@ def construir_explorador_diario() -> str:
       <script id="dex-index" type="application/json">{idx_json}</script>"""
 
 
+def construir_eventos_impactos() -> str:
+    """Sección 'Eventos e impactos' (pestaña Clima): línea de tiempo de crecidas
+    documentadas + comparador antes/después (Sentinel-2) con dos conceptos —
+    inundación (Ciclón Yaku 2023) y crecimiento del cultivo (2017→2025)."""
+    meta_path = DATA / "juxtapose_meta.json"
+    try:
+        jx = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+
+    def fdate(iso):
+        mes = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+        y, m, d = iso.split("-")
+        return f"{int(d)} {mes[int(m)-1]} {y}"
+
+    # Línea de tiempo de eventos documentados (con fuente).
+    eventos = [
+        ("1997–98", "El Niño extraordinario",
+         "Crecidas excepcionales en los ríos costeros de Lima; origen de las campañas de descolmatación del cauce.", "CAF · SENAMHI"),
+        ("28 feb 2017", "Niño Costero · desborde en Manchuria",
+         "El Chancay se desborda en Manchuria (Aucallama): más de 200 ha de cultivo arrasadas —maíz, yuca, fresa, plátano.", "SENASA · Andina"),
+        ("15 mar 2023", "Ciclón Yaku",
+         "Lluvias extraordinarias sobre la costa central; el caudal en Santo Domingo alcanza 113,4 m³/s (nivel Fuerte), más de 6× lo habitual.", "INDECI · SENAMHI"),
+        ("feb 2025", "Crecida recurrente del Chancay",
+         "Nueva crecida y deslizamientos en el valle: víctimas y daños a vías, puentes y cultivos.", "Andina"),
+    ]
+    tl = "".join(
+        f'<div class="evt-item"><span class="evt-date">{f}</span>'
+        f'<span class="evt-title">{t}</span><span class="evt-desc">{d}</span>'
+        f'<span class="evt-src">{s}</span></div>'
+        for f, t, d, s in eventos)
+
+    # Payload para el comparador (fechas legibles + pie honesto por concepto).
+    fl, ag = jx.get("flood", {}), jx.get("agri", {})
+    payload = {
+        "flood": {
+            "lab_b": fdate(fl["antes"]["fecha"]), "lab_a": fdate(fl["despues"]["fecha"]),
+            "cap": ("Antes y después del paso del <b>Ciclón Yaku</b> por el valle bajo. "
+                    "La escena posterior —semanas tras el pico de 113,4 m³/s del 15 de marzo de 2023— "
+                    "muestra el rebrote y las huellas de sedimento que dejó la crecida sobre los cultivos "
+                    "de Aucallama–Chancay. Imágenes Sentinel-2 (ESA)."),
+        },
+        "agri": {
+            "lab_b": fdate(ag["antes"]["fecha"]), "lab_a": fdate(ag["despues"]["fecha"]),
+            "cap": ("Expansión del cultivo en la llanura de inundación de Aucallama–Manchuria entre "
+                    "2017 y 2025: más superficie sembrada y más población en la zona expuesta a las "
+                    "crecidas del Chancay. Imágenes Sentinel-2 (ESA)."),
+        },
+    }
+    pj = json.dumps(payload, ensure_ascii=False)
+    return f"""
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">Eventos e impactos</p>
+        <h2 class="h-serif">Cuando la crecida llega al valle</h2>
+        <p class="prose prose-wide">La cuenca alta descarga sobre un valle bajo densamente
+        cultivado y poblado (Aucallama, Chancay); ahí una crecida se vuelve desastre.
+        Estos son los eventos documentados y su huella en el territorio —arrastre el
+        control para comparar el antes y el después.</p>
+      </header>
+      <div class="reveal evt-timeline">{tl}</div>
+      <div class="reveal jx">
+        <div class="jx-tabs" role="tablist" aria-label="Comparación antes/después">
+          <button type="button" class="jx-tab is-active" data-c="flood">Inundación · Ciclón Yaku (2023)</button>
+          <button type="button" class="jx-tab" data-c="agri">Crecimiento del cultivo (2017 → 2025)</button>
+        </div>
+        <div class="jx-stage" id="jx-stage">
+          <img class="jx-img jx-after" id="jx-after" alt="Imagen satelital, después" draggable="false">
+          <img class="jx-img jx-before" id="jx-before" alt="Imagen satelital, antes" draggable="false">
+          <div class="jx-line" id="jx-line"><span class="jx-grip" aria-hidden="true">&#8646;</span></div>
+          <span class="jx-tag jx-tag-l" id="jx-tag-b"></span>
+          <span class="jx-tag jx-tag-r" id="jx-tag-a"></span>
+        </div>
+        <p class="jx-cap nota" id="jx-cap"></p>
+      </div>
+      <script id="jx-meta" type="application/json">{pj}</script>"""
+
+
 def construir_eda(acf: pd.DataFrame, ccf: pd.DataFrame) -> str:
     a = acf.sort_values("lag")
     c = ccf.sort_values("lag")
@@ -2555,6 +2632,37 @@ CSS_RESULTADOS = r"""
   color:#8494A0;font-size:13px;}
 @media (max-width:640px){.dex-dl{margin-left:0;}}
 
+/* ── Eventos e impactos: línea de tiempo + comparador antes/después ── */
+.evt-timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#E2E8EE;
+  border:1px solid #E2E8EE;border-radius:12px;overflow:hidden;margin:14px 0 24px;}
+.evt-item{background:#fff;padding:15px 17px;display:flex;flex-direction:column;gap:5px;}
+.evt-date{font-family:IBM Plex Mono,ui-monospace,monospace;font-size:12px;color:#0B6E8C;font-weight:600;}
+.evt-title{font-size:13.5px;font-weight:600;color:#0C1E2A;line-height:1.3;}
+.evt-desc{font-size:12px;color:#5B6B78;line-height:1.5;}
+.evt-src{font-size:9.5px;color:#8494A0;text-transform:uppercase;letter-spacing:.05em;margin-top:auto;padding-top:4px;}
+@media(max-width:820px){.evt-timeline{grid-template-columns:1fr 1fr;}}
+@media(max-width:480px){.evt-timeline{grid-template-columns:1fr;}}
+.jx{margin-top:4px;}
+.jx-tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+.jx-tab{font-family:IBM Plex Sans,system-ui;font-size:13px;padding:8px 15px;border-radius:999px;
+  border:1px solid #D5DEE6;background:#fff;color:#5B6B78;cursor:pointer;transition:.16s;}
+.jx-tab:hover{border-color:#1BA8C4;color:#0B6E8C;}
+.jx-tab.is-active{background:#0B6E8C;color:#fff;border-color:#0B6E8C;}
+.jx-stage{position:relative;width:100%;aspect-ratio:1000/814;border-radius:12px;overflow:hidden;
+  cursor:ew-resize;user-select:none;background:#0A1A22;box-shadow:0 8px 30px rgba(10,61,84,.18);}
+.jx-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;-webkit-user-drag:none;}
+.jx-after{z-index:1;} .jx-before{z-index:2;clip-path:inset(0 50% 0 0);}
+.jx-line{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;z-index:3;
+  transform:translateX(-1px);box-shadow:0 0 0 1px rgba(0,0,0,.28);pointer-events:none;}
+.jx-grip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;
+  border-radius:50%;background:#fff;color:#0B6E8C;display:flex;align-items:center;justify-content:center;
+  font-size:16px;box-shadow:0 2px 10px rgba(0,0,0,.35);}
+.jx-tag{position:absolute;top:12px;z-index:3;font-family:IBM Plex Mono,ui-monospace,monospace;
+  font-size:11px;color:#fff;background:rgba(10,26,34,.72);padding:4px 9px;border-radius:6px;
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);pointer-events:none;}
+.jx-tag-l{left:12px;} .jx-tag-r{right:12px;}
+.jx-cap{margin-top:11px;}
+
 /* ── Resultados-primero ── */
 .resultados{margin-bottom:38px;}
 .res-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#E2E8EE;
@@ -2599,7 +2707,8 @@ CSS_RESULTADOS = r"""
 def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
-              recorrido_div, resultados_html, protocolo_html, explorador_div="") -> str:
+              recorrido_div, resultados_html, protocolo_html, explorador_div="",
+              eventos_div="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3007,6 +3116,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       La cuenca responde sobre todo a la <b>lluvia andina estacional</b>; el Niño costero
       <b>modula, no determina</b> el caudal. Por eso el pronóstico se apoya en los
       forzantes meteorológicos —no en el índice ENSO por sí solo.</p>
+{eventos_div}
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Ablación · aporte de los índices</p>
@@ -4869,6 +4979,41 @@ JS_EXPLORER = """
 })();
 """
 
+# Comparador antes/después (pestaña Clima): arrastra el divisor (clip-path) y alterna
+# entre los dos conceptos (inundación Yaku / crecimiento agrícola). Carga perezosa.
+JS_JUXTAPOSE = """
+(function(){
+  var M=null; try{ M=JSON.parse(document.getElementById('jx-meta').textContent); }catch(e){}
+  if(!M) return;
+  var stage=document.getElementById('jx-stage'), after=document.getElementById('jx-after'),
+      before=document.getElementById('jx-before'), line=document.getElementById('jx-line'),
+      tagB=document.getElementById('jx-tag-b'), tagA=document.getElementById('jx-tag-a'),
+      cap=document.getElementById('jx-cap');
+  if(!stage||!before) return;
+  var concept='flood', pos=50, dragging=false, inited=false;
+  function setPos(p){ pos=Math.max(2,Math.min(98,p));
+    before.style.clipPath='inset(0 '+(100-pos)+'% 0 0)'; line.style.left=pos+'%'; }
+  function load(c){ concept=c; var m=M[c]; if(!m) return;
+    after.src='media/juxtapose/'+c+'_despues.jpg';
+    before.src='media/juxtapose/'+c+'_antes.jpg';
+    tagB.textContent=m.lab_b; tagA.textContent=m.lab_a; cap.innerHTML=m.cap;
+    var tabs=document.querySelectorAll('.jx-tab');
+    for(var i=0;i<tabs.length;i++){ tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-c')===c); }
+    setPos(50); }
+  function pctFromX(clientX){ var r=stage.getBoundingClientRect(); return (clientX-r.left)/r.width*100; }
+  function down(e){ dragging=true; var x=e.touches?e.touches[0].clientX:e.clientX; setPos(pctFromX(x)); if(e.cancelable)e.preventDefault(); }
+  function moveH(e){ if(!dragging) return; var x=e.touches?e.touches[0].clientX:e.clientX; setPos(pctFromX(x)); }
+  function up(){ dragging=false; }
+  stage.addEventListener('mousedown',down); window.addEventListener('mousemove',moveH); window.addEventListener('mouseup',up);
+  stage.addEventListener('touchstart',down,{passive:false}); window.addEventListener('touchmove',moveH,{passive:false}); window.addEventListener('touchend',up);
+  var tabs=document.querySelectorAll('.jx-tab');
+  for(var i=0;i<tabs.length;i++){ tabs[i].addEventListener('click',function(){ load(this.getAttribute('data-c')); }); }
+  function boot(){ var p=document.getElementById('tab-clima'); if(!p||p.hidden||inited) return; inited=true; load('flood'); }
+  document.addEventListener('hidroalerta:tabshown',function(){ setTimeout(boot,80); });
+  setTimeout(boot,400);
+})();
+"""
+
 JS_STORY = """
 (function(){
   function run(){
@@ -5568,11 +5713,12 @@ def main():
     resultados_html = banda_resultados(metr)
     protocolo_html = bloque_protocolo()
     explorador_div = construir_explorador_diario()
+    eventos_div = construir_eventos_impactos()
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
-                       recorrido_div, resultados_html, protocolo_html, explorador_div)
+                       recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
@@ -5598,6 +5744,7 @@ def main():
 <script>{JS_EMBED}</script>
 <script>{JS_COUNTERS}</script>
 <script>{JS_EXPLORER}</script>
+<script>{JS_JUXTAPOSE}</script>
 <script>{SM.JS}</script>
 </body>
 </html>
