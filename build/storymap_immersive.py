@@ -110,8 +110,10 @@ def _capitulos(meta) -> list:
                  "cuenca mientras el <b>caudal observado</b> en Santo Domingo se dispara.",
                  "De un caudal habitual cercano a <b>17 m³/s</b>, el río llegó a "
                  "<b>113 m³/s el 15 de marzo</b> —más de seis veces lo normal, nivel "
-                 "<b>Fuerte</b> (naranja) del protocolo RM-049—. Es exactamente el tipo de "
-                 "crecida que un sistema de alerta debe ver venir.",
+                 "<b>Fuerte</b> (naranja) del protocolo RM-049—. Aguas abajo, una crecida así "
+                 "es la que desborda los cultivos del valle, como ya ocurrió en <b>Manchuria "
+                 "en 2017</b>. Es exactamente el tipo de evento que un sistema de alerta debe "
+                 "ver venir.",
              ]),
         dict(id="alerta", num="09", eyebrow="Del pronóstico al aviso",
              titulo="Del viaje del agua a la alerta temprana",
