@@ -1675,6 +1675,42 @@ def bloque_embeddings(cfg_json: str) -> str:
 
 
 # ── 10 · Análisis exploratorio (ACF + CCF) ────────────────────────────────────
+def construir_explorador_diario() -> str:
+    """Explorador interactivo de las series diarias limpias (pestaña Datos).
+
+    Embebe el índice (docs/data/daily_index.json) y arma el selector + contenedor
+    del gráfico + descarga. Cada serie se carga de forma PEREZOSA (fetch del CSV al
+    seleccionarla) para no inflar el HTML; los CSV viven en docs/data/daily/."""
+    idx_path = DOCS / "data" / "daily_index.json"
+    try:
+        idx = json.loads(idx_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    n = len(idx.get("series", []))
+    idx_json = json.dumps(idx, ensure_ascii=False)
+    return f"""
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">Datos abiertos · series diarias</p>
+        <h2 class="h-serif">Explora los registros diarios de las estaciones</h2>
+        <p class="prose prose-wide">{n} series diarias con control de calidad —
+        <b>caudal</b> y <b>nivel</b> (SNIRH&ndash;ANA), <b>precipitación</b> y
+        <b>temperatura</b> (SENAMHI). Elige una serie para verla completa y descarga
+        el CSV para reutilizarla.</p>
+      </header>
+      <div class="reveal dex">
+        <div class="dex-bar">
+          <label class="dex-lab" for="dex-sel">Serie</label>
+          <select id="dex-sel" class="dex-select" aria-label="Serie diaria"></select>
+          <a id="dex-dl" class="dex-dl" href="#" download>&#8595;&nbsp;Descargar CSV</a>
+        </div>
+        <div id="dex-meta" class="dex-meta mono" aria-live="polite"></div>
+        <div id="dex-plot" class="dex-plot"></div>
+        <p class="nota">Se omiten los días sin dato. Pirca y Santa Cruz se publican con
+        el registro SNIRH (más extenso). Cada CSV trae dos columnas: <code>date,value</code>.</p>
+      </div>
+      <script id="dex-index" type="application/json">{idx_json}</script>"""
+
+
 def construir_eda(acf: pd.DataFrame, ccf: pd.DataFrame) -> str:
     a = acf.sort_values("lag")
     c = ccf.sort_values("lag")
@@ -2484,6 +2520,28 @@ def bloque_protocolo() -> str:
 
 # CSS de los bloques Resultados + Protocolo (string plano; se inyecta aparte).
 CSS_RESULTADOS = r"""
+/* ── Explorador de series diarias (pestaña Datos) ── */
+.dex{margin-top:14px;}
+.dex-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
+.dex-lab{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#5B6B78;font-weight:600;}
+.dex-select{font-family:IBM Plex Sans,system-ui;font-size:14px;color:#0C1E2A;
+  padding:9px 34px 9px 12px;border:1px solid #D5DEE6;border-radius:9px;background:#FFFFFF;
+  min-width:min(320px,72vw);cursor:pointer;appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%230B6E8C' stroke-width='1.6'/></svg>");
+  background-repeat:no-repeat;background-position:right 12px center;}
+.dex-select:focus{outline:2px solid #1BA8C4;outline-offset:1px;border-color:#1BA8C4;}
+.dex-dl{margin-left:auto;font-family:IBM Plex Sans,system-ui;font-size:13px;font-weight:600;
+  color:#0B6E8C;text-decoration:none;padding:8px 14px;border:1px solid #B9D2DC;border-radius:999px;
+  background:#F0F7FA;transition:.16s;white-space:nowrap;}
+.dex-dl:hover{background:#0B6E8C;color:#fff;border-color:#0B6E8C;}
+.dex-meta{font-size:12px;color:#5B6B78;margin:2px 0 8px;line-height:1.5;}
+.dex-meta b{color:#0C1E2A;}
+.dex-plot{width:100%;min-height:260px;border:1px solid #EAF0F4;border-radius:12px;
+  background:linear-gradient(180deg,#FCFDFE,#F5F9FB);padding:6px 8px;}
+.dex-loading{display:flex;align-items:center;justify-content:center;height:300px;
+  color:#8494A0;font-size:13px;}
+@media (max-width:640px){.dex-dl{margin-left:0;}}
+
 /* ── Resultados-primero ── */
 .resultados{margin-bottom:38px;}
 .res-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#E2E8EE;
@@ -2528,7 +2586,7 @@ CSS_RESULTADOS = r"""
 def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
-              recorrido_div, resultados_html, protocolo_html) -> str:
+              recorrido_div, resultados_html, protocolo_html, explorador_div="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3001,6 +3059,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         (Isomap) la separan mejor.</p>
       </header>
       <div class="reveal">{embed_div}</div>
+{explorador_div}
     </div>
   </section>
 
@@ -4737,6 +4796,66 @@ JS_COUNTERS = """
 # La inicialización (globo/mapa) ocurre al mostrarse la pestaña "Recorrido"
 # (evento 'hidroalerta:tabshown'); al salir de la pestaña se pausa la rotación
 # del globo (rendimiento). Todo respeta prefers-reduced-motion.
+# Explorador de series diarias (pestaña Datos): selector + gráfico Plotly cliente.
+# El índice se embebe (#dex-index); cada serie se carga PEREZOSAMENTE por fetch del CSV
+# (docs/data/daily/*.csv) al seleccionarla. Dibuja al mostrarse la pestaña y reescala.
+JS_EXPLORER = """
+(function(){
+  var idx=null; try{ idx=JSON.parse(document.getElementById('dex-index').textContent); }catch(e){}
+  if(!idx || !idx.series || !idx.series.length) return;
+  var sel=document.getElementById('dex-sel'), plot=document.getElementById('dex-plot'),
+      meta=document.getElementById('dex-meta'), dl=document.getElementById('dex-dl');
+  if(!sel||!plot) return;
+  var COL={q:'#0B6E8C',nivel:'#1BA8C4',pr:'#2E6E9E',tmax:'#C0392B',tmin:'#D68910'};
+  // Agrupa por variable en <optgroup> (Caudal, Nivel, Precipitación, Temperatura…).
+  var groups={}, order=[];
+  idx.series.forEach(function(s,i){ if(!groups[s.variable_label]){groups[s.variable_label]=[];order.push(s.variable_label);} groups[s.variable_label].push({s:s,i:i}); });
+  order.forEach(function(g){ var og=document.createElement('optgroup'); og.label=g;
+    groups[g].forEach(function(o){ var op=document.createElement('option'); op.value=o.i;
+      op.textContent=o.s.estacion+(o.s.alt!=null?(' · '+o.s.alt+' m'):''); og.appendChild(op); });
+    sel.appendChild(og); });
+  var cache={}, drawn=false, plotted=false;
+  function fmt(n){ try{return n.toLocaleString('es-PE');}catch(e){return ''+n;} }
+  function render(i){
+    var s=idx.series[i], rows=cache[i]; if(!s||!rows||typeof Plotly==='undefined') return;
+    var c=COL[s.variable]||'#0B6E8C';
+    var x=rows.map(function(r){return r[0];}), y=rows.map(function(r){return r[1];});
+    var tr={x:x,y:y,type:'scatter',mode:'lines',line:{color:c,width:1.1},
+      fill:'tozeroy',fillcolor:c+'22',hovertemplate:'%{x|%d %b %Y}<br><b>%{y}</b> '+s.unidad+'<extra></extra>'};
+    var lay={margin:{l:56,r:16,t:6,b:34},height:markHeight(),
+      paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+      font:{family:'IBM Plex Sans, system-ui',size:12,color:'#0C1E2A'},
+      xaxis:{type:'date',gridcolor:'#E2E8EE',linecolor:'#D5DEE6',showline:true,ticks:'outside',tickcolor:'#D5DEE6'},
+      yaxis:{title:{text:s.unidad,font:{size:11}},gridcolor:'#E2E8EE',zeroline:false,rangemode:'tozero'},
+      showlegend:false,hovermode:'x unified'};
+    Plotly.react(plot,[tr],lay,{responsive:true,displayModeBar:false}); plotted=true;
+  }
+  function markHeight(){ return window.innerWidth<640?260:360; }
+  function draw(i){
+    var s=idx.series[i]; if(!s) return;
+    if(dl){ dl.href=s.file; dl.setAttribute('download', s.id+'.csv'); }
+    var cod=(s.codigo&&/[0-9]/.test(s.codigo))?(' · '+s.codigo):'';   // omite slugs sin código real
+    if(meta){ meta.innerHTML='<b>'+s.estacion+'</b> · '+s.variable_label+' ('+s.unidad+') · '+
+      s.fuente+' · '+s.date_min+'→'+s.date_max+' · '+fmt(s.n)+' días'+cod; }
+    if(cache[i]){ render(i); return; }
+    if(!plotted){ plot.innerHTML='<div class="dex-loading">Cargando serie…</div>'; }  // no nuke si ya hay plot vivo
+    fetch(s.file).then(function(r){return r.text();}).then(function(t){
+      cache[i]=t.trim().split('\\n').slice(1).map(function(ln){var p=ln.split(',');return [p[0],parseFloat(p[1])];});
+      if(!plotted){ plot.innerHTML=''; }
+      render(i);                                   // Plotly.react crea o actualiza en el sitio
+    }).catch(function(){ if(!plotted) plot.innerHTML='<div class="dex-loading">No se pudo cargar la serie.</div>'; });
+  }
+  sel.addEventListener('change',function(){ draw(+sel.value); });
+  function activate(){ var p=document.getElementById('tab-datos');
+    if(!p||p.hidden) return;
+    if(!drawn){ drawn=true; draw(0); }
+    else if(typeof Plotly!=='undefined'){ try{Plotly.Plots.resize(plot);}catch(e){} } }
+  document.addEventListener('hidroalerta:tabshown',function(){ setTimeout(activate,90); });
+  window.addEventListener('resize',function(){ if(drawn&&typeof Plotly!=='undefined'){try{Plotly.Plots.resize(plot);}catch(e){}} });
+  setTimeout(activate,400);   // por si la pestaña Datos ya está visible (deep-link)
+})();
+"""
+
 JS_STORY = """
 (function(){
   function run(){
@@ -5435,11 +5554,12 @@ def main():
         json.dumps(sm_data, ensure_ascii=False, separators=(",", ":")))
     resultados_html = banda_resultados(metr)
     protocolo_html = bloque_protocolo()
+    explorador_div = construir_explorador_diario()
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
-                       recorrido_div, resultados_html, protocolo_html)
+                       recorrido_div, resultados_html, protocolo_html, explorador_div)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
@@ -5464,6 +5584,7 @@ def main():
 <script>{JS_FORECAST}</script>
 <script>{JS_EMBED}</script>
 <script>{JS_COUNTERS}</script>
+<script>{JS_EXPLORER}</script>
 <script>{SM.JS}</script>
 </body>
 </html>
