@@ -563,6 +563,20 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         ).add_to(grp_lag)
     grp_lag.add_to(m)
 
+    # ── Cobertura / uso de suelo (ESA WorldCover 2021, 10 m) — capa opcional ─
+    lc_leg = []
+    try:
+        _lcm = json.loads((DATA / "landcover_meta.json").read_text(encoding="utf-8"))
+        _lcuri = ("data:image/png;base64,"
+                  + base64.b64encode((DOCS / "media/terrain/landcover.png").read_bytes()).decode())
+        _glc = folium.FeatureGroup(name="Cobertura / uso de suelo", show=False)
+        folium.raster_layers.ImageOverlay(
+            image=_lcuri, bounds=_lcm["bounds"], opacity=0.80, zindex=1).add_to(_glc)
+        _glc.add_to(m)
+        lc_leg = [x for x in _lcm.get("leyenda", []) if x["pct"] >= 0.4][:6]
+    except Exception:
+        pass
+
     Fullscreen(title="Pantalla completa",
                title_cancel="Salir", position="topleft").add_to(m)
     folium.LayerControl(collapsed=True, position="topright").add_to(m)
@@ -582,6 +596,14 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         pass
 
     # Leyenda (elevación + tipos de punto) — paleta y tipografía del proyecto.
+    lc_rows = ""
+    if lc_leg:
+        lc_rows = (f'<b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;'
+                   f'font-size:10.5px;display:inline-block;margin-top:6px">Cobertura (WorldCover)</b><br>')
+        for x in lc_leg:
+            lc_rows += (f'<span style="display:inline-block;width:12px;height:12px;'
+                        f'background:{x["color"]};border-radius:2px;vertical-align:middle"></span> '
+                        f'{x["nombre"]} ({x["pct"]:g}%)<br>')
     leyenda = f"""
     <div style="position:absolute;bottom:18px;left:12px;z-index:9999;
       background:rgba(255,255,255,0.95);padding:10px 13px;border-radius:10px;
@@ -607,7 +629,8 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
       <span style="color:{COL_WARN};font-size:15px;vertical-align:middle">&#9670;</span>
         Meteorológica (lluvia)<br>
       <span style="color:{COL_CYAN};font-size:15px;vertical-align:middle">&#9679;</span>
-        Cuerpo de agua
+        Cuerpo de agua<br>
+      {lc_rows}
     </div>"""
     m.get_root().html.add_child(folium.Element(leyenda))
 

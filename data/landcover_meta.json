@@ -1,0 +1,69 @@
+{
+ "bounds": [
+  [
+   -11.662083625793457,
+   -77.24874877929688
+  ],
+  [
+   -11.013750076293945,
+   -76.45708465576172
+  ]
+ ],
+ "fuente": "ESA WorldCover 2021 (10 m)",
+ "leyenda": [
+  {
+   "code": 60,
+   "color": "#b4b4b4",
+   "nombre": "Suelo desnudo / roca",
+   "pct": 41.3
+  },
+  {
+   "code": 30,
+   "color": "#ffff4c",
+   "nombre": "Pastizal",
+   "pct": 34.7
+  },
+  {
+   "code": 20,
+   "color": "#ffbb22",
+   "nombre": "Matorral",
+   "pct": 21.2
+  },
+  {
+   "code": 10,
+   "color": "#006400",
+   "nombre": "Bosque",
+   "pct": 1.3
+  },
+  {
+   "code": 40,
+   "color": "#f096ff",
+   "nombre": "Cultivos (agricultura)",
+   "pct": 1.0
+  },
+  {
+   "code": 80,
+   "color": "#0064c8",
+   "nombre": "Cuerpos de agua",
+   "pct": 0.4
+  },
+  {
+   "code": 50,
+   "color": "#fa0000",
+   "nombre": "Zona urbana",
+   "pct": 0.2
+  },
+  {
+   "code": 70,
+   "color": "#f0f0f0",
+   "nombre": "Nieve / hielo",
+   "pct": 0.0
+  },
+  {
+   "code": 90,
+   "color": "#0096a0",
+   "nombre": "Humedal",
+   "pct": 0.0
+  }
+ ]
+}
