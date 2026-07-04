@@ -128,6 +128,57 @@ def _capitulos(meta) -> list:
     ]
 
 
+# ── "Dato destacado" por capítulo: un stat / mini-visual que responde la pregunta
+#    del capítulo de un vistazo (para que las tarjetas no sean solo texto). ──
+def _sm_stats(items):
+    return ("<div class='sm-stats'>" + "".join(
+        f"<div class='sm-stat'><span class='sm-stat-num'>{n}</span>"
+        f"<span class='sm-stat-lab'>{l}</span></div>" for n, l in items) + "</div>")
+
+def _sm_tags(items):
+    return ("<div class='sm-tags'>" + "".join(f"<span class='sm-tag'>{t}</span>" for t in items) + "</div>")
+
+def _sm_elev_bar():
+    return ("<div class='sm-fig'><svg viewBox='0 0 320 30' preserveAspectRatio='none'"
+            " role='img' aria-label='Rango de elevación de 0 a 5242 m'>"
+            "<defs><linearGradient id='smelev' x1='0' y1='0' x2='1' y2='0'>"
+            "<stop offset='0' stop-color='#0A3D54'/><stop offset='0.5' stop-color='#4D93A6'/>"
+            "<stop offset='1' stop-color='#E7F1F5'/></linearGradient></defs>"
+            "<rect x='0' y='2' width='320' height='11' rx='5.5' fill='url(#smelev)'/>"
+            "<text x='2' y='26' fill='#9fb8c2' font-size='10' font-family='IBM Plex Mono,monospace'>0 m · litoral</text>"
+            "<text x='318' y='26' fill='#cfe2ea' font-size='10' font-family='IBM Plex Mono,monospace'"
+            " text-anchor='end'>5 242 m · cabecera</text></svg></div>")
+
+def _sm_yaku_bar():
+    h17 = round(17/113*46); h113 = 46
+    return ("<div class='sm-fig'><svg viewBox='0 0 300 74' role='img'"
+            " aria-label='De 17 a 113 m3/s, seis veces'>"
+            f"<rect x='42' y='{58-h17}' width='56' height='{h17}' rx='3' fill='#4D93A6'/>"
+            f"<rect x='150' y='{58-h113}' width='56' height='{h113}' rx='3' fill='#C0392B'/>"
+            f"<text x='70' y='{54-h17}' fill='#cfe2ea' font-size='11' text-anchor='middle' font-family='IBM Plex Mono,monospace'>17</text>"
+            f"<text x='178' y='{53-h113}' fill='#fff' font-size='13' text-anchor='middle' font-family='IBM Plex Mono,monospace' font-weight='600'>113</text>"
+            "<text x='70' y='70' fill='#9fb8c2' font-size='10' text-anchor='middle' font-family='IBM Plex Sans,sans-serif'>habitual</text>"
+            "<text x='178' y='70' fill='#e78a7f' font-size='10' text-anchor='middle' font-family='IBM Plex Sans,sans-serif'>Yaku</text>"
+            "<text x='250' y='34' fill='#e78a7f' font-size='15' font-family='IBM Plex Mono,monospace' font-weight='600'>×6.6</text>"
+            "<text x='250' y='49' fill='#9fb8c2' font-size='9' font-family='IBM Plex Sans,sans-serif'>m³/s</text></svg></div>")
+
+def _card_extras(meta):
+    area = f"{meta.get('cuenca_area_km2', 3062.6):,.0f}".replace(",", " ")
+    nsub = meta.get("n_subcuencas", 9)
+    return {
+        "cuenca": _sm_stats([(area, "km²"), (str(nsub), "subcuencas"), ("0–5 242", "m s.n.m.")]),
+        "relieve": _sm_elev_bar(),
+        "cabeceras": _sm_stats([("56 %", "del rendimiento hídrico"), ("122 km", "río principal"),
+                                ("3", "cabeceras &gt;4 000 m")]),
+        "clima": _sm_stats([("Dic–Abr", "temporada húmeda"), ("&gt;700 mm", "al año en la cabecera")]),
+        "invisible": _sm_tags(["Humedad de suelo", "Nieve", "Vegetación", "ERA5-Land"]),
+        "integracion": _sm_stats([("6", "capas de datos"), ("1", "misma cuenca")]),
+        "yaku": _sm_yaku_bar(),
+        "alerta": _sm_stats([("0.95", "NSE · 1 día"), ("71 %", "detección de crecida"),
+                             ("14 d", "ventana de pronóstico")]),
+    }
+
+
 def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
                    data_json: str) -> str:
     """HTML de la pestaña «Recorrido»: escenario 3D full-screen (sticky) + narrativa scroll.
@@ -137,6 +188,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
     (los PNG se referencian relativos a media/). Se embebe inline (autocontenido, como el resto
     del dashboard); el JS lo lee de #sm-data."""
     caps = _capitulos(meta)
+    extras = _card_extras(meta)
 
     pasos = []
     for c in caps:
@@ -148,6 +200,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
             f"<p class='sm-eyebrow'><span class='sm-num'>{c['num']}</span>{c['eyebrow']}</p>"
             f"<h3 class='sm-h h-serif' id='sm-h-{c['id']}'>{c['titulo']}</h3>"
             f"{parr}"
+            f"{extras.get(c['id'], '')}"
             f"</div></section>")
     narrativa = "\n".join(pasos)
 
@@ -347,6 +400,19 @@ CSS = r"""
 .sm-p{font-family:var(--sans,sans-serif);font-size:15px;line-height:1.62;color:#d6e4ea;margin:0 0 12px;}
 .sm-p:last-child{margin-bottom:0;}
 .sm-p b{color:#fff;font-weight:600;}
+/* Dato destacado / mini-visual por tarjeta */
+.sm-card .sm-stats,.sm-card .sm-fig,.sm-card .sm-tags{margin-top:16px;padding-top:14px;
+  border-top:1px solid rgba(120,170,190,.18);}
+.sm-stats{display:flex;gap:22px;flex-wrap:wrap;}
+.sm-stat{display:flex;flex-direction:column;gap:3px;}
+.sm-stat-num{font-family:var(--mono,'IBM Plex Mono',monospace);font-size:1.55rem;font-weight:600;
+  line-height:1;color:var(--cyan,#1BA8C4);font-variant-numeric:tabular-nums;}
+.sm-stat-lab{font-family:var(--sans,sans-serif);font-size:10.5px;text-transform:uppercase;
+  letter-spacing:.06em;color:#9fb8c2;max-width:140px;line-height:1.25;}
+.sm-tags{display:flex;gap:7px;flex-wrap:wrap;}
+.sm-tag{font-family:var(--sans,sans-serif);font-size:11px;color:#cfe2ea;
+  background:rgba(27,168,196,.14);border:1px solid rgba(27,168,196,.32);border-radius:999px;padding:3px 10px;}
+.sm-fig svg{display:block;width:100%;height:auto;max-width:340px;}
 @media (max-width:760px){
   .sm-step{padding:0 16px;align-items:flex-end;}
   .sm-card{max-width:none;width:100%;margin-bottom:15vh;padding:20px 20px;}
