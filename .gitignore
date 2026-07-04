@@ -38,3 +38,6 @@ outputs/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Shapefiles crudos aportados (se curan a data/gis_*.geojson)
+data/*.zip

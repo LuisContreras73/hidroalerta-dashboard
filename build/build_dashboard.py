@@ -434,26 +434,73 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         ).add_to(grp_sub)
     grp_sub.add_to(m)
 
-    # ── Capa: Ríos y cauces (red de drenaje) ────────────────────────────────
-    # Un solo GeoJson con style_function por feature (main → más grueso). Es más
-    # ligero que crear miles de PolyLine individuales.
-    grp_rios = folium.FeatureGroup(name="Ríos y cauces", show=True)
+    # ── Capa: Red de drenaje (D8, contexto tenue) ───────────────────────────
+    # Red de drenaje derivada del DEM (D8) como contexto de fondo bajo los ríos
+    # oficiales con nombre. Trazo fino y translúcido en tono frío neutro para no
+    # competir con los cauces nombrados. Un solo GeoJson (ligero).
+    grp_red = folium.FeatureGroup(name="Red de drenaje", show=False)
 
-    def _estilo_rio(feat):
+    def _estilo_red(feat):
         pr = feat.get("properties", {}) or {}
         if pr.get("main"):
-            return {"color": "#1BA8C4", "weight": 3.2, "opacity": 0.95}
+            return {"color": "#6E97A8", "weight": 1.6, "opacity": 0.55}
         w = pr.get("w", 0.5) or 0.5
-        return {"color": "#3FA9C4", "weight": 0.6 + 1.6 * float(w),
-                "opacity": 0.72}
+        return {"color": "#8AAEBD", "weight": 0.5 + 1.0 * float(w),
+                "opacity": 0.42}
 
     folium.GeoJson(
         rios,
-        style_function=_estilo_rio,
+        style_function=_estilo_red,
         smooth_factor=1.2,
         interactive=False,
-    ).add_to(grp_rios)
-    grp_rios.add_to(m)
+    ).add_to(grp_red)
+    grp_red.add_to(m)
+
+    # ── Capa: Ríos principales (ANA, con nombre y etiqueta) ──────────────────
+    # Cauces oficiales nombrados (ANA). Polilíneas cian de la paleta; el eje
+    # principal (Río Chancay) más grueso. La etiqueta con el nombre se coloca
+    # una sola vez por río (en el punto medio del tramo más largo) para no
+    # repetir «Río Chancay» en cada segmento.
+    grp_rio_nom = folium.FeatureGroup(name="Ríos principales", show=True)
+    try:
+        _rios_nom = json.loads(
+            (DATA / "gis_rios.geojson").read_text(encoding="utf-8"))
+        _por_nombre = {}   # nombre -> (n_pts, coords, es_main)
+        for ft in _rios_nom["features"]:
+            pr = ft.get("properties", {}) or {}
+            nom = (pr.get("nombre") or "Río").strip()
+            coords = ft["geometry"]["coordinates"]
+            es_main = nom.lower().startswith("río chancay")
+            estilo = ({"color": COL_CYAN, "weight": 3.6, "opacity": 0.97}
+                      if es_main else
+                      {"color": COL_CYAN, "weight": 2.2, "opacity": 0.90})
+            largo = pr.get("LONG_KM", 0) or 0
+            folium.GeoJson(
+                ft,
+                style_function=lambda _f, s=estilo: s,
+                smooth_factor=1.0,
+                tooltip=folium.Tooltip(f"<b>{nom}</b> · {largo:.1f} km"),
+            ).add_to(grp_rio_nom)
+            prev = _por_nombre.get(nom)
+            if prev is None or len(coords) > prev[0]:
+                _por_nombre[nom] = (len(coords), coords, es_main)
+        for nom, (_n, coords, es_main) in _por_nombre.items():
+            lon, lat = coords[len(coords) // 2]
+            fs = "12px" if es_main else "11px"
+            folium.map.Marker(
+                [lat, lon],
+                icon=folium.DivIcon(
+                    html=(
+                        f"<div style='font-family:IBM Plex Sans,system-ui;"
+                        f"font-size:{fs};font-weight:600;font-style:italic;"
+                        f"color:{COL_DEEP};white-space:nowrap;"
+                        f"text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 4px #fff'>"
+                        f"{nom}</div>"),
+                    icon_size=(0, 0), icon_anchor=(0, -2)),
+            ).add_to(grp_rio_nom)
+    except Exception:
+        pass
+    grp_rio_nom.add_to(m)
 
     # ── Capa: Estaciones meteorológicas (9) — gota naranja, climatología PP ──
     grp_meteo = folium.FeatureGroup(name="Estaciones meteorológicas", show=True)
@@ -526,42 +573,98 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         ).add_to(grp_hidro)
     grp_hidro.add_to(m)
 
-    # ── Capa: Cuerpos de agua (lagunas) — CircleMarker por área ──────────────
-    # verificada=True → cian sólido; verificada=False → tono claro + trazo
-    # discontinuo y sufijo «(probable)» (honestidad sobre la incertidumbre).
+    # ── Capa: Cuerpos de agua (lagunas reales, IGN) — polígonos ──────────────
+    # Polígonos reales de lagos y lagunas (IGN) en lugar de puntos inferidos del
+    # DEM: relleno cian de la paleta, borde agua.
     grp_lag = folium.FeatureGroup(name="Cuerpos de agua", show=True)
-    for lg in map_est.get("lagunas", []):
-        area = lg.get("area", 0) or 0
-        verif = bool(lg.get("verificada"))
-        nombre = lg["nombre"]
-        if not verif and "probable" not in nombre.lower():
-            nombre = f"{nombre} (probable)"
-        radio = max(5.0, min(14.0, 5.0 + (area ** 0.5) * 9.0))
-        estado = ("Verificada" if verif else "No verificada")
-        html = (
-            f"<div style='font-family:IBM Plex Sans,system-ui;font-size:12.5px;"
-            f"min-width:190px;color:#0C1E2A'>"
-            f"<b style='color:{COL_CYAN}'>Cuerpo de agua</b><br>"
-            f"<b>{nombre}</b><br>"
-            f"<span style='color:{COL_MUTED}'>Tipo:</span> {lg.get('tipo','—')}<br>"
-            f"<span style='color:{COL_MUTED}'>Elevación:</span> "
-            f"{lg.get('elev','—'):,} m<br>"
-            f"<span style='color:{COL_MUTED}'>Área:</span> {area:g} km²<br>"
-            f"<span style='color:{COL_MUTED}'>Estado:</span> {estado}"
-            f"</div>")
-        if verif:
-            estilo = dict(color=COL_CYAN, fill=True, fill_color=COL_CYAN,
-                          fill_opacity=0.72, weight=2)
-        else:
-            estilo = dict(color="#7FD3E3", fill=True, fill_color="#BFE7F0",
-                          fill_opacity=0.35, weight=1.6, dash_array="4,3")
-        folium.CircleMarker(
-            [lg["lat"], lg["lon"]], radius=radio,
-            tooltip=nombre,
-            popup=folium.Popup(html, max_width=240),
-            **estilo,
-        ).add_to(grp_lag)
+    try:
+        _lag = json.loads((DATA / "gis_lagunas.geojson").read_text(encoding="utf-8"))
+
+        def _estilo_lag(_f):
+            return {"fillColor": COL_CYAN, "color": COL_ACCENT,
+                    "weight": 1.0, "fillOpacity": 0.60}
+
+        for ft in _lag["features"]:
+            pr = ft.get("properties", {}) or {}
+            nom = pr.get("nombre") or "Laguna"
+            area = pr.get("area_km2") or 0
+            popup = folium.Popup(
+                f"<div style='font-family:IBM Plex Sans,system-ui;"
+                f"font-size:12.5px;min-width:170px;color:#0C1E2A'>"
+                f"<b style='color:{COL_CYAN}'>Cuerpo de agua</b><br>"
+                f"<b>{nom}</b><br>"
+                f"<span style='color:{COL_MUTED}'>Área:</span> {area:.2f} km²"
+                f"</div>", max_width=230)
+            folium.GeoJson(
+                ft,
+                style_function=_estilo_lag,
+                highlight_function=lambda _f: {"weight": 2.0,
+                                               "fillOpacity": 0.78},
+                tooltip=folium.Tooltip(f"<b>{nom}</b> · {area:.2f} km²"),
+                popup=popup,
+            ).add_to(grp_lag)
+    except Exception:
+        pass
     grp_lag.add_to(m)
+
+    # ── Capa: Glaciares (ANA) — relleno pálido ───────────────────────────────
+    try:
+        _glac = json.loads((DATA / "gis_glaciares.geojson").read_text(encoding="utf-8"))
+        grp_glac = folium.FeatureGroup(name="Glaciares", show=False)
+
+        def _estilo_glac(_f):
+            return {"fillColor": "#e8f4f8", "color": "#9fc7d6",
+                    "weight": 1.0, "fillOpacity": 0.78}
+
+        for ft in _glac["features"]:
+            pr = ft.get("properties", {}) or {}
+            nom = pr.get("nombre") or "Glaciar"
+            area = pr.get("area") or 0
+            folium.GeoJson(
+                ft,
+                style_function=_estilo_glac,
+                highlight_function=lambda _f: {"weight": 1.8,
+                                               "fillOpacity": 0.92},
+                tooltip=folium.Tooltip(f"<b>{nom}</b> · {area:.2f} km²"),
+            ).add_to(grp_glac)
+        grp_glac.add_to(m)
+    except Exception:
+        pass
+
+    # ── Capa: Clima (SENAMHI 1981–2010) — clasificación climática ────────────
+    # Polígonos rellenados con el color oficial del QML (propiedad `color`).
+    # `clima_leg` recoge los pares (color, glosa) únicos para la leyenda.
+    clima_leg = []
+    try:
+        _clima = json.loads((DATA / "gis_clima.geojson").read_text(encoding="utf-8"))
+
+        def _estilo_clima(f):
+            c = (f.get("properties", {}) or {}).get("color", COL_MUTED)
+            return {"fillColor": c, "color": "#FFFFFF", "weight": 0.6,
+                    "fillOpacity": 0.55}
+
+        folium.GeoJson(
+            _clima,
+            name="Clima (SENAMHI)",
+            show=False,
+            style_function=_estilo_clima,
+            highlight_function=lambda _f: {"weight": 1.6, "fillOpacity": 0.74},
+            tooltip=folium.GeoJsonTooltip(
+                fields=["CODIGO", "glosa"],
+                aliases=["Código:", "Clima:"], sticky=True),
+            popup=folium.GeoJsonPopup(
+                fields=["CODIGO", "glosa"],
+                aliases=["Código climático (SENAMHI):", "Clasificación:"]),
+        ).add_to(m)
+        _vistos = set()
+        for ft in _clima["features"]:
+            pr = ft.get("properties", {}) or {}
+            key = (pr.get("color"), pr.get("glosa"))
+            if pr.get("color") and key not in _vistos:
+                _vistos.add(key)
+                clima_leg.append(key)
+    except Exception:
+        pass
 
     # ── Cobertura / uso de suelo (ESA WorldCover 2021, 10 m) — capa opcional ─
     lc_leg = []
@@ -596,6 +699,20 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         pass
 
     # Leyenda (elevación + tipos de punto) — paleta y tipografía del proyecto.
+    # Sección de clima construida desde el propio GeoJSON (color + glosa) para
+    # que la leyenda coincida exactamente con lo dibujado.
+    clima_rows = ""
+    if clima_leg:
+        clima_rows = (f'<b style="color:{COL_DEEP};letter-spacing:.06em;'
+                      f'text-transform:uppercase;font-size:10.5px;'
+                      f'display:inline-block;margin-top:6px">Clima (SENAMHI)</b><br>')
+        for color, glosa in clima_leg:
+            brd = ("border:1px solid #C9D6DE;"
+                   if str(color).lower() == "#ffffff" else "")
+            clima_rows += (
+                f'<span style="display:inline-block;width:12px;height:12px;'
+                f'background:{color};{brd}border-radius:2px;'
+                f'vertical-align:middle"></span> {glosa}<br>')
     lc_rows = ""
     if lc_leg:
         lc_rows = (f'<b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;'
@@ -609,7 +726,8 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
       background:rgba(255,255,255,0.95);padding:10px 13px;border-radius:10px;
       box-shadow:0 1px 8px rgba(10,61,84,.16);
       font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:12px;
-      line-height:1.55;color:{COL_INK};border:1px solid {COL_BORDER};max-width:190px">
+      line-height:1.55;color:{COL_INK};border:1px solid {COL_BORDER};
+      max-width:190px;max-height:calc(100% - 40px);overflow:auto">
       <b style="color:{COL_DEEP};letter-spacing:.06em;text-transform:uppercase;
         font-size:10.5px">Elevación (m)</b><br>
       <span style="display:inline-block;width:12px;height:12px;background:#7FD3E3;
@@ -630,6 +748,13 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         Meteorológica (lluvia)<br>
       <span style="color:{COL_CYAN};font-size:15px;vertical-align:middle">&#9679;</span>
         Cuerpo de agua<br>
+      <span style="display:inline-block;width:16px;height:0;
+        border-top:3px solid {COL_CYAN};vertical-align:middle;
+        margin:0 3px 3px 0"></span> Ríos principales<br>
+      <span style="display:inline-block;width:12px;height:12px;background:#e8f4f8;
+        border:1px solid #9fc7d6;border-radius:2px;vertical-align:middle"></span>
+        Glaciares<br>
+      {clima_rows}
       {lc_rows}
     </div>"""
     m.get_root().html.add_child(folium.Element(leyenda))

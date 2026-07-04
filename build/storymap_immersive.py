@@ -207,7 +207,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
     # Config mínima al JS (colores + parámetros del terreno). Todo lo demás por fetch.
     cfg = {
         "bounds": None,          # lo trae terrain_meta.json
-        "exag": 4.2,             # exageración vertical del relieve (profundidad)
+        "exag": 3.1,             # exageración vertical del relieve (moderada, menos exagerada)
         "tex": {
             "dem": "media/terrain/dem_rgb.png",
             "satellite": "media/terrain/satellite.png",
@@ -468,7 +468,7 @@ JS = r"""
     origen:   {globe:true},
     cuenca:   {flat2d:true, pitch:0, bearing:0,  view:'basin', reveal:0, subs:true},
     relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true, orbit:true},
-    cabeceras:{tex:'satellite',pitch:56,bearing:-22,view:'head',  reveal:1, rivers:true,points:true,heads:true,orbit:true},
+    cabeceras:{tex:'satellite',pitch:50,bearing:-18,view:'head',  reveal:1, rivers:true,points:true,heads:true,orbit:true},
     clima:    {tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.7,rivers:true,heads:true,tl:'clima'},
     invisible:{tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.6,rivers:true,tl:'era5'},
     integracion:{stack:true,   pitch:54,bearing:22, view:'stack'},
@@ -496,9 +496,9 @@ JS = r"""
   function views(){
     var w=BOUNDS[0],s=BOUNDS[1],e=BOUNDS[2],n=BOUNDS[3];
     return {
-      basin: {longitude:(w+e)/2, latitude:(s+n)/2-0.01, zoom:9.6},
-      head:  {longitude:-76.66,  latitude:-11.18,        zoom:10.3},
-      valley:{longitude:-77.02,  latitude:-11.40,        zoom:9.95},
+      basin: {longitude:(w+e)/2, latitude:(s+n)/2-0.01, zoom:9.5},
+      head:  {longitude:-76.80,  latitude:-11.27,        zoom:9.7},
+      valley:{longitude:-77.02,  latitude:-11.40,        zoom:9.85},
       stack: {longitude:(w+e)/2+0.06, latitude:(s+n)/2-0.05, zoom:8.4}
     };
   }
