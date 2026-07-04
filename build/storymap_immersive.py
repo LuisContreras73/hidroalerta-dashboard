@@ -207,7 +207,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
     # Config mínima al JS (colores + parámetros del terreno). Todo lo demás por fetch.
     cfg = {
         "bounds": None,          # lo trae terrain_meta.json
-        "exag": 3.1,             # exageración vertical del relieve (moderada, menos exagerada)
+        "exag": 2.4,             # exageración vertical del relieve (suave, cuenca tallada)
         "tex": {
             "dem": "media/terrain/dem_rgb.png",
             "satellite": "media/terrain/satellite.png",
@@ -278,6 +278,14 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
           <span class="sm-stack-ico" aria-hidden="true">&#8645;</span>
           <span id="sm-stack-lab">Integrar capas</span>
         </button>
+
+        <!-- Girar la cuenca (órbita a demanda). Visible cuando hay terreno 3D. -->
+        <button type="button" class="sm-spin-btn" id="sm-spin-btn" hidden
+                aria-pressed="false" aria-label="Girar o detener la vista de la cuenca">
+          <span class="sm-spin-ico" aria-hidden="true">&#8635;</span>
+          <span id="sm-spin-lab">Girar</span>
+        </button>
+        <div class="sm-drag-hint" id="sm-drag-hint" aria-hidden="true">Arrastre para rotar · rueda del ratón bloqueada</div>
 
         <!-- Pista de scroll (desaparece tras el primer avance). -->
         <div class="sm-scroll-hint" id="sm-scroll-hint" aria-hidden="true">
@@ -377,6 +385,21 @@ CSS = r"""
   box-shadow:0 10px 34px rgba(0,0,0,.4);transition:.18s;}
 .sm-stack-btn:hover{background:rgba(16,38,50,.85);}
 .sm-stack-ico{font-size:15px;color:var(--cyan,#1BA8C4);}
+.sm-spin-btn{position:absolute;right:20px;bottom:24px;z-index:5;
+  display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  font-family:var(--sans,sans-serif);font-size:12.5px;color:#eaf2f6;padding:8px 15px;
+  border-radius:999px;background:rgba(9,22,31,.72);backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);border:1px solid rgba(120,170,190,.30);
+  box-shadow:0 8px 26px rgba(0,0,0,.38);transition:.18s;}
+.sm-spin-btn:hover{background:rgba(16,38,50,.85);border-color:rgba(27,168,196,.55);}
+.sm-spin-btn.is-on{background:rgba(11,110,140,.55);border-color:rgba(27,168,196,.7);}
+.sm-spin-ico{font-size:16px;color:var(--cyan,#1BA8C4);display:inline-block;}
+.sm-spin-btn.is-on .sm-spin-ico{animation:sm-rot 2.2s linear infinite;}
+@keyframes sm-rot{to{transform:rotate(360deg);}}
+.sm-drag-hint{position:absolute;right:20px;bottom:58px;z-index:4;font-size:10.5px;
+  letter-spacing:.03em;color:rgba(214,228,236,.62);pointer-events:none;transition:opacity .5s;text-align:right;}
+.sm-immersive.is-moved .sm-drag-hint{opacity:0;}
+@media (prefers-reduced-motion:reduce){.sm-spin-btn.is-on .sm-spin-ico{animation:none;}}
 .sm-scroll-hint{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:3;
   display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11.5px;
   letter-spacing:.08em;color:rgba(230,240,246,.8);pointer-events:none;transition:opacity .5s;}
@@ -437,7 +460,7 @@ JS = r"""
   var EXAG=CFG.exag||4, TEX=CFG.tex, COL=CFG.col;
   var deckgl=null, globe=null, inited=false, active=false, obs=null;
   var BOUNDS=null, DECODER=null, EMAX=5000;
-  var view=null, tweenRAF=null, orbitRAF=null, orbit=false, curCap=null;
+  var view=null, tweenRAF=null, orbitRAF=null, orbit=false, spin=false, curCap=null;
   var reveal=0, revRAF=null, spread=0, spreadRAF=null;
   var scene={};                               // flags del capítulo actual
   var tl={kind:null,sub:null,idx:0,n:12,playing:false,timer:null};
@@ -468,13 +491,13 @@ JS = r"""
   var SCENES={
     origen:   {globe:true},
     cuenca:   {flat2d:true, pitch:0, bearing:0,  view:'basin', reveal:0, subs:true},
-    relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true, orbit:true},
+    relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true,rivnames:true, orbit:true},
     cabeceras:{tex:'satellite',pitch:50,bearing:-18,view:'head',  reveal:1, rivers:true,rivnames:true,points:true,heads:true,orbit:true},
-    clima:    {tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.7,rivers:true,heads:true,tl:'clima'},
-    invisible:{tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.6,rivers:true,tl:'era5'},
+    clima:    {tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.7,rivers:true,rivnames:true,heads:true,tl:'clima'},
+    invisible:{tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.6,rivers:true,rivnames:true,tl:'era5'},
     integracion:{stack:true,   pitch:54,bearing:22, view:'stack'},
     yaku:     {tex:'relief',   pitch:54,bearing:-6, view:'valley',reveal:0.85,rivers:true,rivnames:true,points:true,tl:'evento'},
-    alerta:   {tex:'satellite',pitch:42,bearing:0,  view:'basin', reveal:0.55,rivers:true,points:true,plots:true}
+    alerta:   {tex:'satellite',pitch:42,bearing:0,  view:'basin', reveal:0.55,rivers:true,rivnames:true,points:true,plots:true}
   };
   // Sub-variables del timelapse: cmap/campo por tipo.
   var TLSUB={ clima:['precip','temp'], era5:['suelo','nieve','veg'], evento:['pr'] };
@@ -577,11 +600,16 @@ JS = r"""
       var seen={}, labs=[];
       D.rios_nombres.features.forEach(function(f){var n=f.properties.nombre;
         if(!seen[n]){seen[n]=1; labs.push(f.properties);}});
-      L.push(new deck.TextLayer({id:'rionom-lbl', data:labs, billboard:true, characterSet:'auto',
-        getPosition:function(d){return [d.lx, d.ly, (d.lz||0)*EXAG+340];},
-        getText:function(d){return d.nombre;}, getSize:12.5, getColor:[205,242,251,245],
-        fontFamily:'IBM Plex Sans, sans-serif', fontWeight:500,
-        outlineWidth:2.5, outlineColor:[6,18,26,235], getTextAnchor:'middle',
+      // Etiquetas TENDIDAS sobre el suelo y orientadas al sentido del cauce (getAngle=la).
+      L.push(new deck.TextLayer({id:'rionom-lbl', data:labs, billboard:false, characterSet:'auto',
+        getPosition:function(d){return [d.lx, d.ly, (d.lz||0)*EXAG+120];},
+        getText:function(d){return d.nombre;},
+        getAngle:function(d){return d.la||0;},
+        getSize:function(d){return d.main?15:12.5;}, sizeUnits:'pixels',
+        getColor:function(d){return d.main?[210,244,252,255]:[168,224,244,245];},
+        fontFamily:'IBM Plex Sans, sans-serif', fontWeight:600, fontSettings:{sdf:true},
+        background:true, getBackgroundColor:[7,20,29,175], backgroundPadding:[5,2],
+        outlineWidth:3.0, outlineColor:[6,18,26,245], getTextAnchor:'middle',
         getAlignmentBaseline:'center', parameters:{depthTest:false}}));
     }
     // Cabeceras (iconos montaña + etiqueta con % de aporte).
@@ -598,8 +626,8 @@ JS = r"""
         getPosition:function(f){return [f.properties.cx,f.properties.cy,(f.properties.cz||0)*EXAG+250];},
         getText:function(f){return f.properties.nombre+'  ·  '+(f.properties.yield_pct||'')+'%';},
         getSize:12, getColor:[255,255,255,235], getPixelOffset:[0,-42],
-        fontFamily:'IBM Plex Sans, sans-serif', fontWeight:600,
-        outlineWidth:2, outlineColor:[6,18,26,220], getTextAnchor:'middle', getAlignmentBaseline:'bottom'
+        fontFamily:'IBM Plex Sans, sans-serif', fontWeight:600, fontSettings:{sdf:true},
+        outlineWidth:2.6, outlineColor:[6,18,26,235], getTextAnchor:'middle', getAlignmentBaseline:'bottom'
       }));
     }
     // Estaciones + ciudad (iconos + etiquetas).
@@ -615,8 +643,8 @@ JS = r"""
         getPosition:function(f){var c=f.geometry.coordinates;return [c[0],c[1],(c[2]||0)*EXAG+180];},
         getText:function(f){return f.properties.nombre;},
         getSize:11.5, getColor:[240,248,252,230], getPixelOffset:[0,-40],
-        fontFamily:'IBM Plex Sans, sans-serif', fontWeight:500,
-        outlineWidth:2, outlineColor:[6,18,26,210], getTextAnchor:'middle', getAlignmentBaseline:'bottom'
+        fontFamily:'IBM Plex Sans, sans-serif', fontWeight:500, fontSettings:{sdf:true},
+        outlineWidth:2.6, outlineColor:[6,18,26,225], getTextAnchor:'middle', getAlignmentBaseline:'bottom'
       }));
     }
     return L;
@@ -642,7 +670,8 @@ JS = r"""
       data:STACK.map(function(s,i){return {z:zAt(i),lab:s.lab};}),
       getPosition:function(d){return [E0+0.012,N0,d.z];}, getText:function(d){return d.lab;},
       getSize:12.5, getColor:[240,248,252,245], getTextAnchor:'start', getAlignmentBaseline:'center',
-      fontFamily:'IBM Plex Sans, sans-serif', fontWeight:500, outlineWidth:2.5, outlineColor:[6,18,26,235],
+      fontFamily:'IBM Plex Sans, sans-serif', fontWeight:500, fontSettings:{sdf:true},
+      outlineWidth:2.6, outlineColor:[6,18,26,235],
       characterSet:'auto', billboard:true, getPixelOffset:[14,0], parameters:{depthTest:false},
       updateTriggers:{getPosition:[spread]}}));
     return L;
@@ -683,8 +712,13 @@ JS = r"""
     spreadRAF=requestAnimationFrame(step);
   }
   function startOrbit(){ if(reduce) return; if(orbitRAF) cancelAnimationFrame(orbitRAF);
-    (function spin(){ if(!orbit){orbitRAF=null;return;} view.bearing=(view.bearing+0.06)%360; apply(); orbitRAF=requestAnimationFrame(spin); })(); }
+    (function turn(){ if(!orbit){orbitRAF=null;return;} view.bearing=((view.bearing||0)+0.12)%360; apply(); orbitRAF=requestAnimationFrame(turn); })(); }
   function stopOrbit(){ orbit=false; if(orbitRAF) cancelAnimationFrame(orbitRAF); orbitRAF=null; }
+  // Botón "Girar cuenca": órbita a demanda en cualquier capítulo (además del auto-orbit de escena).
+  function updateSpinBtn(){ var b=$('sm-spin-btn'); if(!b) return;
+    var lab=$('sm-spin-lab'); b.setAttribute('aria-pressed', orbit?'true':'false');
+    b.classList.toggle('is-on', !!orbit); if(lab) lab.textContent=orbit?'Detener':'Girar'; }
+  function toggleSpin(){ spin=!orbit; orbit=spin; if(orbit) startOrbit(); else stopOrbit(); updateSpinBtn(); }
 
   // ── Globo (cap. 1) ────────────────────────────────────────────────────────
   function initGlobe(){
@@ -822,29 +856,33 @@ JS = r"""
     var stackBtn=$('sm-stack-btn'); if(stackBtn) stackBtn.hidden=!s.stack;
     // globo vs deck
     showGlobe(!!s.globe);
-    if(s.globe){ hideControl(); $('sm-hydro').hidden=true; showPlots(false); if(hud) hud.classList.remove('is-on'); return; }
+    var spb=$('sm-spin-btn'); if(spb) spb.hidden=!!s.globe;
+    if(s.globe){ hideControl(); $('sm-hydro').hidden=true; showPlots(false); orbit=false; stopOrbit(); updateSpinBtn(); if(hud) hud.classList.remove('is-on'); return; }
     // exploded layer stack (capas de datos que se separan y se integran)
     if(s.stack){
-      hideControl(); $('sm-hydro').hidden=true; showPlots(false); orbit=false; stopOrbit();
+      hideControl(); $('sm-hydro').hidden=true; showPlots(false); orbit=spin; if(!orbit) stopOrbit();
       spread=0;
       var vs=views().stack;
       tweenTo({longitude:vs.longitude,latitude:vs.latitude,zoom:vs.zoom,pitch:s.pitch,bearing:s.bearing}, curCap? 1900:0);
       tweenSpread(1);
       if($('sm-stack-lab')) $('sm-stack-lab').textContent='Integrar capas';
-      return;
+      updateSpinBtn(); return;
     }
     // timelapse / controles
     if(s.tl){ setupControl(s.tl); } else { hideControl(); }
     $('sm-hydro').hidden = (s.tl!=='evento');
     if(s.tl==='evento'){ initHydro(); updateHydro(0); }
     showPlots(!!s.plots);
-    // órbita
-    orbit=!!s.orbit; if(!orbit) stopOrbit();
+    // órbita (auto por escena o giro manual persistente)
+    orbit=(!!s.orbit)||spin; if(!orbit) stopOrbit();
     // cámara + revelado + capas
     var v=views()[s.view]||views().basin;
     tweenTo({longitude:v.longitude,latitude:v.latitude,zoom:v.zoom,pitch:s.pitch||0,bearing:s.bearing||0}, curCap? 1900:0);
     tweenReveal(s.reveal!=null?s.reveal:0);
-    relayers();
+    relayers(); updateSpinBtn();
+    // robustez de enlace-profundo: si se salta en frío a un capítulo con drape, re-aplica
+    // las capas una vez cargada la textura (evita terreno en blanco al aterrizar directo).
+    if(s.tl){ setTimeout(function(){ if(curCap===id) relayers(); }, 650); }
   }
 
   // ── Inicialización deck + observer (perezosa al mostrar la pestaña) ────────
@@ -866,7 +904,7 @@ JS = r"""
         viewState:view, controller:{dragRotate:true,touchRotate:true,dragPan:true,doubleClickZoom:false,scrollZoom:false,touchZoom:false,inertia:220},
         effects:[lighting], layers:buildLayers(),
         parameters:{clearColor:[0.024,0.07,0.10,0]},
-        onViewStateChange:function(e){ view=e.viewState; if(tweenRAF){cancelAnimationFrame(tweenRAF);tweenRAF=null;} stopOrbit(); apply(); },
+        onViewStateChange:function(e){ view=e.viewState; if(tweenRAF){cancelAnimationFrame(tweenRAF);tweenRAF=null;} spin=false; stopOrbit(); updateSpinBtn(); apply(); },
         getTooltip:function(o){ if(o&&o.object&&o.object.properties&&o.object.properties.desc)
           return {text:o.object.properties.nombre+'\n'+o.object.properties.desc}; return null; }
       });
@@ -876,6 +914,7 @@ JS = r"""
     var sb=$('sm-stack-btn');
     if(sb) sb.onclick=function(){ var t=spread>0.5?0:1; tweenSpread(t);
       if($('sm-stack-lab')) $('sm-stack-lab').textContent=(t>0.5?'Integrar capas':'Separar capas'); };
+    var spb=$('sm-spin-btn'); if(spb) spb.onclick=toggleSpin;   // girar/detener la cuenca
     // observer de capítulos
     obs=new IntersectionObserver(function(ents){
       ents.forEach(function(en){ if(en.isIntersecting){

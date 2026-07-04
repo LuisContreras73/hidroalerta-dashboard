@@ -62,7 +62,7 @@
   "nieve": {
    "n": 12,
    "vmin": 0.0,
-   "vmax": 19.0,
+   "vmax": 18.9,
    "unidad": "%",
    "label": "Cobertura de nieve (ERA5-Land)"
   },

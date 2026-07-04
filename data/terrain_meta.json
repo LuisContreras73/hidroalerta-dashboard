@@ -9,7 +9,7 @@
   "rScaler": 256,
   "gScaler": 1,
   "bScaler": 0,
-  "offset": 0
+  "offset": -257.0
  },
  "elevMin": 2,
  "elevMax": 5242,
