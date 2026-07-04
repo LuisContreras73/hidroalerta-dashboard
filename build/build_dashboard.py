@@ -373,6 +373,31 @@ def _drop_icon(color, ring="#FFFFFF"):
     return folium.DivIcon(html=html, icon_size=(20, 20), icon_anchor=(10, 16))
 
 
+def _svg_spark(series, color):
+    """Mini-sparkline SVG (~230×52) de una serie anual [[año,valor],…]: área + línea +
+    punto final, con el primer y último año. Muestra el HISTÓRICO de la estación."""
+    pts = [(int(y), float(v)) for y, v in (series or []) if v is not None]
+    if len(pts) < 2:
+        return ""
+    W, H, pl, pr, pt, pb = 230, 52, 6, 6, 8, 14
+    pw, ph = W-pl-pr, H-pt-pb
+    ys = [p[1] for p in pts]; y0 = min(ys); rng = (max(ys)-y0) or 1.0
+    n = len(pts)
+    def X(i): return pl + pw*i/(n-1)
+    def Y(v): return pt + ph*(1-(v-y0)/rng)
+    line = " ".join(f"{X(i):.1f},{Y(v):.1f}" for i, (_, v) in enumerate(pts))
+    area = f"{pl},{pt+ph} {line} {pl+pw},{pt+ph}"
+    return (
+        f"<svg viewBox='0 0 {W} {H}' width='100%' style='display:block'>"
+        f"<polygon points='{area}' fill='{color}' opacity='0.14'/>"
+        f"<polyline points='{line}' fill='none' stroke='{color}' stroke-width='1.6'/>"
+        f"<circle cx='{X(n-1):.1f}' cy='{Y(pts[-1][1]):.1f}' r='2.4' fill='{color}'/>"
+        f"<text x='{pl}' y='{H-3}' font-size='9' fill='#5B6B78' "
+        f"font-family='IBM Plex Mono'>{pts[0][0]}</text>"
+        f"<text x='{pl+pw}' y='{H-3}' font-size='9' fill='#5B6B78' "
+        f"font-family='IBM Plex Mono' text-anchor='end'>{pts[-1][0]}</text></svg>")
+
+
 def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
     """Mapa Folium de la cuenca (Resumen): subcuencas por elevación, red de ríos,
     estaciones meteo/hidro con climatología mensual (SVG en popup), lagunas, y
@@ -535,8 +560,14 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
     grp_meteo = folium.FeatureGroup(name="Estaciones meteorológicas", show=True)
     for e in map_est.get("meteo", []):
         svg = _svg_barras(e.get("pr_mes"), "#2E6E9E", "mm")
+        spark = _svg_spark(e.get("hist"), "#2E6E9E")
         pr_anual = e.get("pr_anual")
         pr_txt = f"{pr_anual:,.0f} mm".replace(",", " ") if pr_anual is not None else "—"
+        spark_html = (
+            f"<div style='margin-top:5px;padding-top:4px;"
+            f"border-top:1px solid {COL_BORDER}'>"
+            f"<span style='color:{COL_MUTED};font-size:11px'>Total anual · "
+            f"histórico (mm)</span>{spark}</div>") if spark else ""
         html = (
             f"<div style='font-family:IBM Plex Sans,system-ui;font-size:12.5px;"
             f"min-width:236px;color:#0C1E2A'>"
@@ -551,6 +582,7 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
             f"border-top:1px solid {COL_BORDER}'>"
             f"<span style='color:{COL_MUTED};font-size:11px'>Precipitación media "
             f"mensual (mm)</span>{svg}</div>"
+            f"{spark_html}"
             f"</div>")
         folium.Marker(
             [e["lat"], e["lon"]],
@@ -567,10 +599,16 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         es_outlet = (h.get("codigo") == cod_outlet)
         color = COL_CRIT if es_outlet else COL_ACCENT
         svg = _svg_barras(h.get("q_mes"), color, "m³/s")
+        spark = _svg_spark(h.get("hist"), color)
         alt = h.get("alt")
         alt_txt = f"{alt:,} m".replace(",", " ") if alt is not None else "—"
         etiqueta_tipo = ("Estación hidrométrica · salida de cuenca"
                          if es_outlet else "Estación hidrométrica")
+        spark_html = (
+            f"<div style='margin-top:5px;padding-top:4px;"
+            f"border-top:1px solid {COL_BORDER}'>"
+            f"<span style='color:{COL_MUTED};font-size:11px'>Media anual · "
+            f"histórico (m³/s)</span>{spark}</div>") if spark else ""
         html = (
             f"<div style='font-family:IBM Plex Sans,system-ui;font-size:12.5px;"
             f"min-width:236px;color:#0C1E2A'>"
@@ -589,6 +627,7 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
             f"border-top:1px solid {COL_BORDER}'>"
             f"<span style='color:{COL_MUTED};font-size:11px'>Caudal medio "
             f"mensual (m³/s)</span>{svg}</div>"
+            f"{spark_html}"
             f"</div>")
         tip = (f"Hidrométrica · {h['nombre']} (salida)" if es_outlet
                else f"Hidrométrica · {h['nombre']}")
