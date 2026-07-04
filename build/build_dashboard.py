@@ -1108,6 +1108,58 @@ def construir_enso(enso: pd.DataFrame) -> str:
         config={"displayModeBar": False, "responsive": True})
 
 
+def construir_enso_caudal() -> str:
+    """El evento reflejado en NUESTROS datos: índice del Niño costero (ICEN) + caudal
+    observado en Santo Domingo (2020–2026), en PANELES APILADOS que comparten el eje
+    temporal (sin doble eje-y). Marco honesto: Yaku (mar-2023) coincidió con El Niño
+    Costero moderado→fuerte, pero la relación ENSO–caudal NO es una correlación simple
+    (r≈0; también hay crecidas en fase fría, como ene-2021)."""
+    from plotly.subplots import make_subplots
+    e = pd.read_csv(DATA / "enso_costero.csv", parse_dates=["date"]).sort_values("date")
+    q = pd.read_csv(DATA / "caudal_obs.csv", parse_dates=["date"]).sort_values("date")
+    ini = pd.Timestamp("2020-09-01")
+    e = e[e["date"] >= ini]; q = q[q["date"] >= ini]
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.06,
+                        row_heights=[0.42, 0.58])
+    # Panel 1 · Niño costero (divergente alrededor de 0: cálido rojo / frío azul).
+    fig.add_trace(go.Scatter(x=e["date"], y=e["coastal"].clip(lower=0), mode="lines",
+        line=dict(width=0), fill="tozeroy", fillcolor="rgba(192,57,43,0.20)",
+        hoverinfo="skip", showlegend=False), row=1, col=1)
+    fig.add_trace(go.Scatter(x=e["date"], y=e["coastal"].clip(upper=0), mode="lines",
+        line=dict(width=0), fill="tozeroy", fillcolor="rgba(11,110,140,0.20)",
+        hoverinfo="skip", showlegend=False), row=1, col=1)
+    fig.add_trace(go.Scatter(x=e["date"], y=e["coastal"], mode="lines",
+        line=dict(color=COL_INK, width=1.8), name="Niño costero (ICEN)",
+        hovertemplate="Niño costero %{y:.2f} °C<extra></extra>"), row=1, col=1)
+    fig.add_hline(y=0.4, line=dict(color=COL_CRIT, width=1, dash="dot"), row=1, col=1)
+    fig.add_hline(y=-0.4, line=dict(color=COL_ACCENT, width=1, dash="dot"), row=1, col=1)
+    fig.add_hline(y=0, line=dict(color=COL_BORDER, width=1), row=1, col=1)
+    fig.add_annotation(x="2023-04-15", y=2.1, text="El Niño Costero", showarrow=False,
+        font=dict(size=11, color=COL_CRIT, family=FONT_SANS), row=1, col=1)
+    fig.add_annotation(x="2021-01-01", y=-1.3, text="La Niña", showarrow=False,
+        font=dict(size=11, color=COL_ACCENT, family=FONT_SANS), row=1, col=1)
+    # Panel 2 · caudal observado.
+    fig.add_trace(go.Scatter(x=q["date"], y=q["q"], mode="lines",
+        line=dict(color=COL_ACCENT, width=1.5), fill="tozeroy",
+        fillcolor="rgba(11,110,140,0.12)", name="Caudal observado (Santo Domingo)",
+        hovertemplate="Caudal %{y:.1f} m³/s<extra></extra>"), row=2, col=1)
+    fig.add_hline(y=UMBRAL_Q90, line=dict(color=COL_MUTED, width=1, dash="dot"), row=2, col=1)
+    fig.add_annotation(x="2023-03-15", y=113, text="Yaku · 113 m³/s", showarrow=True,
+        arrowhead=0, arrowcolor=COL_CRIT, ax=26, ay=-18,
+        font=dict(size=11, color=COL_CRIT, family=FONT_SANS), row=2, col=1)
+    fig.add_annotation(x="2021-01-15", y=93, text="crecida en fase fría",
+        showarrow=True, arrowhead=0, arrowcolor=COL_ACCENT, ax=30, ay=-14,
+        font=dict(size=11, color=COL_ACCENT, family=FONT_SANS), row=2, col=1)
+    fig.update_layout(**layout_base(height=470, margin=dict(l=56, r=18, t=26, b=34)))
+    fig.update_yaxes(axis_y(title="Niño costero (°C)"), row=1, col=1)
+    fig.update_yaxes(axis_y(title="Caudal (m³/s)", rangemode="tozero"), row=2, col=1)
+    fig.update_xaxes(axis_x(), row=1, col=1)
+    fig.update_xaxes(axis_x(title=""), row=2, col=1)
+    return fig.to_html(
+        include_plotlyjs=False, full_html=False, div_id="grafico-enso-caudal",
+        config={"displayModeBar": False, "responsive": True})
+
+
 # ── 09b · Ablación ENSO (aporte de los índices al NSE) ─────────────────────────
 def construir_enso_ablacion(enso_abl: pd.DataFrame) -> str:
     """Barras horizontales de NSE por configuración de índices ENSO.
@@ -2258,7 +2310,7 @@ CSS_RESULTADOS = r"""
 
 # ── Ensamblado del HTML final ─────────────────────────────────────────────────
 def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
-              mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
+              mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
               recorrido_div, resultados_html, protocolo_html) -> str:
     est = meta["estacion"]
@@ -2652,6 +2704,22 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       rango neutro (±0,5 °C); por encima, condición cálida (El Niño) y por debajo,
       fría (La Niña). El pico costero de 2017 y el evento 2023–2024 ilustran
       episodios de fuerte impacto local.</p>
+
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">El evento en nuestros datos</p>
+        <h2 class="h-serif">Cuando el Niño costero se ve en el río</h2>
+        <p class="prose prose-wide">Superponemos el índice del <b>Niño costero (ICEN)</b>
+        con el <b>caudal observado</b> en Santo Domingo (2020–2026). El evento
+        extraordinario del <b>Ciclón Yaku (marzo 2023, pico 113 m³/s)</b> coincidió con
+        un <b>El Niño Costero moderado→fuerte</b>: la señal climática se ve, en efecto,
+        reflejada en el río.</p>
+      </header>
+      <div class="reveal">{enso_caudal_div}</div>
+      <p class="nota reveal">Pero la relación <b>no es una correlación simple</b>
+      (r ≈ 0 mes a mes): también hubo <b>crecidas en fase fría</b> (enero 2021, La Niña).
+      La cuenca responde sobre todo a la <b>lluvia andina estacional</b>; el Niño costero
+      <b>modula, no determina</b> el caudal. Por eso el pronóstico se apoya en los
+      forzantes meteorológicos —no en el índice ENSO por sí solo.</p>
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Ablación · aporte de los índices</p>
@@ -5122,6 +5190,7 @@ def main():
     mensual_div = construir_mensual(mens)
     evento_div = construir_evento(fcast)
     enso_div = construir_enso(enso)
+    enso_caudal_div = construir_enso_caudal()
     eda_div = construir_eda(acf, ccf)
     enso_abl_div = construir_enso_ablacion(enso_abl)
     enso_callout = bloque_enso_callout(enso_extra)
@@ -5151,7 +5220,7 @@ def main():
     protocolo_html = bloque_protocolo()
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
-                       mensual_div, evento_div, enso_div, eda_div, enso_abl_div,
+                       mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
                        recorrido_div, resultados_html, protocolo_html)
 
