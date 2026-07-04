@@ -131,6 +131,35 @@ def axis_y(**kw):
     return a
 
 
+# Variantes OSCURAS (para los gráficos embebidos en el recorrido inmersivo, sobre fondo
+# oscuro): texto/ejes claros, grid tenue, hover oscuro. Evita que "desentonen".
+def layout_dark(**overrides):
+    base = dict(
+        colorway=COLORWAY, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family=FONT_SANS, size=13, color="#cfe2ea"),
+        margin=dict(l=54, r=18, t=20, b=40), hovermode="x unified",
+        hoverlabel=dict(bgcolor="rgba(9,22,31,0.92)", bordercolor="rgba(120,170,190,0.4)",
+                        font=dict(family=FONT_MONO, size=12, color="#eaf2f6")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                    font=dict(size=12, family=FONT_SANS, color="#9fb8c2")),
+        modebar=dict(bgcolor="rgba(0,0,0,0)", color="#9fb8c2", activecolor=COL_CYAN))
+    base.update(overrides)
+    return base
+
+
+def axis_dark(**kw):
+    a = dict(gridcolor="rgba(150,180,195,0.16)", zeroline=False,
+             linecolor="rgba(150,180,195,0.32)",
+             tickfont=dict(family=FONT_MONO, size=11, color="#9fb8c2"),
+             title=dict(font=dict(family=FONT_SANS, size=12, color="#9fb8c2")))
+    a.update(kw)
+    return a
+
+
+COL_MODELO_DARK = {"RA-TFT": "#1BA8C4", "Persistencia": "#9FB0BC",
+                   "LightGBM": "#D2A96A", "HydroST": "#6FB6CE"}
+
+
 # ── Carga de datos curados ──────────────────────────────────────────────────
 def cargar():
     serie = pd.read_csv(DATA / "serie_diaria.csv", parse_dates=["date"])
@@ -2038,36 +2067,36 @@ def construir_evento_recorrido(serie: pd.DataFrame) -> str:
     w = serie[(serie["date"] >= ini) & (serie["date"] <= fin)].sort_values("date")
 
     fig = go.Figure()
-    # Banda P10–P90.
+    # Banda P10–P90 (cian translúcido para fondo oscuro).
     fig.add_trace(go.Scatter(
         x=w["date"], y=w["p90"], mode="lines", line=dict(width=0),
         hoverinfo="skip", showlegend=False, name="P90"))
     fig.add_trace(go.Scatter(
         x=w["date"], y=w["p10"], mode="lines", fill="tonexty",
-        fillcolor=COL_BAND, line=dict(width=0), name="Banda P10–P90",
+        fillcolor="rgba(27,168,196,0.16)", line=dict(width=0), name="Banda P10–P90",
         hovertemplate="P10 %{y:.1f} · "))
-    # Mediana P50 (agua).
+    # Mediana P50 (cian brillante).
     fig.add_trace(go.Scatter(
         x=w["date"], y=w["p50"], mode="lines",
-        line=dict(color=COL_ACCENT, width=2.4), name="Pronóstico (P50)",
+        line=dict(color="#1BA8C4", width=2.6), name="Pronóstico (P50)",
         hovertemplate="P50 %{y:.1f} m³/s"))
-    # Observado (aforo).
+    # Observado (aforo) — claro para leer sobre fondo oscuro.
     obs = w.dropna(subset=["obs"])
     fig.add_trace(go.Scatter(
         x=obs["date"], y=obs["obs"], mode="markers",
-        marker=dict(color=COL_INK, size=5.5, line=dict(width=0)),
+        marker=dict(color="#e6f0f5", size=5.5, line=dict(width=0)),
         name="Caudal observado (aforo)", hovertemplate="Observado %{y:.1f} m³/s"))
 
     fig.add_hline(
         y=UMBRAL_Q90, line=dict(color=COL_CRIT, width=1.6, dash="dot"),
         annotation_text=f"Vigilancia Q90 = {UMBRAL_Q90} m³/s",
         annotation_position="top left",
-        annotation_font=dict(color=COL_CRIT, size=12, family=FONT_MONO))
+        annotation_font=dict(color="#e78a7f", size=12, family=FONT_MONO))
 
-    fig.update_layout(**layout_base(
+    fig.update_layout(**layout_dark(
         margin=dict(l=54, r=16, t=54, b=34), height=430,
-        yaxis=axis_y(title="Caudal (m³/s)", rangemode="tozero"),
-        xaxis=axis_x(title="")))
+        yaxis=axis_dark(title="Caudal (m³/s)", rangemode="tozero"),
+        xaxis=axis_dark(title="")))
 
     return fig.to_html(
         include_plotlyjs=False, full_html=False, div_id="grafico-story-evento",
@@ -2087,21 +2116,21 @@ def construir_leaderboard_recorrido(metr: pd.DataFrame) -> str:
         es_prop = (mod == "RA-TFT")
         fig.add_trace(go.Scatter(
             x=leads, y=ys, mode="lines+markers",
-            line=dict(color=COL_MODELO.get(mod, COL_ACCENT),
-                      width=3 if es_prop else 1.8,
+            line=dict(color=COL_MODELO_DARK.get(mod, "#1BA8C4"),
+                      width=3.2 if es_prop else 1.8,
                       dash="solid" if es_prop else "dot"),
             marker=dict(size=8 if es_prop else 6),
             name=ETIQUETA_MODELO.get(mod, mod),
             hovertemplate=f"{ETIQUETA_MODELO.get(mod, mod)} · "
                           "horizonte %{x} d · NSE %{y:.3f}<extra></extra>"))
-    fig.add_hline(y=0, line=dict(color=COL_BORDER, width=1))
-    fig.update_layout(**layout_base(
+    fig.add_hline(y=0, line=dict(color="rgba(150,180,195,0.3)", width=1))
+    fig.update_layout(**layout_dark(
         height=430, margin=dict(l=54, r=16, t=30, b=44), hovermode="closest",
-        yaxis=axis_y(title="NSE (eficiencia Nash–Sutcliffe)", range=[0, 1.0]),
-        xaxis=axis_x(title="Horizonte de pronóstico (días)",
-                     tickmode="array", tickvals=leads),
+        yaxis=axis_dark(title="NSE (eficiencia Nash–Sutcliffe)", range=[0, 1.0]),
+        xaxis=axis_dark(title="Horizonte de pronóstico (días)",
+                        tickmode="array", tickvals=leads),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left",
-                    x=0, font=dict(size=12, family=FONT_SANS, color=COL_MUTED))))
+                    x=0, font=dict(size=12, family=FONT_SANS, color="#9fb8c2"))))
     return fig.to_html(
         include_plotlyjs=False, full_html=False,
         div_id="grafico-story-leaderboard",

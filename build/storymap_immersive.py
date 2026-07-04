@@ -364,10 +364,11 @@ CSS = r"""
 .sm-plots{position:absolute;right:22px;top:calc(var(--nav-h,60px) + 30px);z-index:4;
   width:min(560px,92vw);max-height:calc(100vh - var(--nav-h,60px) - 130px);overflow:auto;
   display:flex;flex-direction:column;gap:14px;}
-.sm-plot-card{padding:12px 14px;border-radius:14px;background:rgba(247,249,251,.97);
-  border:1px solid var(--border,#E2E8EE);box-shadow:0 12px 40px rgba(0,0,0,.34);}
-.sm-plot-cap{font-family:var(--sans,sans-serif);font-size:12.5px;color:var(--ink,#0C1E2A);
-  margin:0 0 6px;font-weight:600;}
+.sm-plot-card{padding:13px 15px;border-radius:14px;background:rgba(9,22,31,.74);
+  backdrop-filter:blur(10px) saturate(1.1);-webkit-backdrop-filter:blur(10px) saturate(1.1);
+  border:1px solid rgba(120,170,190,.28);box-shadow:0 14px 44px rgba(0,0,0,.5);}
+.sm-plot-cap{font-family:var(--sans,sans-serif);font-size:12.5px;color:#cfe2ea;
+  margin:0 0 8px;font-weight:600;}
 .sm-stack-btn{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);z-index:4;
   display:inline-flex;align-items:center;gap:8px;cursor:pointer;
   font-family:var(--sans,sans-serif);font-size:13px;color:#eaf2f6;padding:9px 18px;
