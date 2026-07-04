@@ -469,11 +469,11 @@ JS = r"""
     origen:   {globe:true},
     cuenca:   {flat2d:true, pitch:0, bearing:0,  view:'basin', reveal:0, subs:true},
     relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true, orbit:true},
-    cabeceras:{tex:'satellite',pitch:50,bearing:-18,view:'head',  reveal:1, rivers:true,points:true,heads:true,orbit:true},
+    cabeceras:{tex:'satellite',pitch:50,bearing:-18,view:'head',  reveal:1, rivers:true,rivnames:true,points:true,heads:true,orbit:true},
     clima:    {tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.7,rivers:true,heads:true,tl:'clima'},
     invisible:{tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.6,rivers:true,tl:'era5'},
     integracion:{stack:true,   pitch:54,bearing:22, view:'stack'},
-    yaku:     {tex:'relief',   pitch:54,bearing:-6, view:'valley',reveal:0.85,rivers:true,points:true,tl:'evento'},
+    yaku:     {tex:'relief',   pitch:54,bearing:-6, view:'valley',reveal:0.85,rivers:true,rivnames:true,points:true,tl:'evento'},
     alerta:   {tex:'satellite',pitch:42,bearing:0,  view:'basin', reveal:0.55,rivers:true,points:true,plots:true}
   };
   // Sub-variables del timelapse: cmap/campo por tipo.
@@ -562,6 +562,27 @@ JS = r"""
         widthUnits:'pixels', widthMinPixels:0.9, capRounded:true, jointRounded:true,
         updateTriggers:{getColor:[reveal]}, parameters:{depthTest:true}
       }));
+    }
+    // Ríos con NOMBRE (ANA) etiquetados sobre el terreno 3D.
+    if(scene.rivnames && D.rios_nombres){
+      var segs=[];
+      D.rios_nombres.features.forEach(function(f){
+        f.geometry.coordinates.forEach(function(seg){ segs.push({p:seg, main:f.properties.main}); });
+      });
+      L.push(new deck.PathLayer({id:'rionom', data:segs,
+        getPath:function(d){return d.p.map(function(c){return [c[0],c[1],(c[2]||0)*EXAG+60];});},
+        getColor:function(d){return d.main?[185,242,255,255]:[140,220,244,240];},
+        getWidth:function(d){return d.main?4.8:2.8;}, widthUnits:'pixels', widthMinPixels:1.4,
+        capRounded:true, jointRounded:true, parameters:{depthTest:true}}));
+      var seen={}, labs=[];
+      D.rios_nombres.features.forEach(function(f){var n=f.properties.nombre;
+        if(!seen[n]){seen[n]=1; labs.push(f.properties);}});
+      L.push(new deck.TextLayer({id:'rionom-lbl', data:labs, billboard:true, characterSet:'auto',
+        getPosition:function(d){return [d.lx, d.ly, (d.lz||0)*EXAG+340];},
+        getText:function(d){return d.nombre;}, getSize:12.5, getColor:[205,242,251,245],
+        fontFamily:'IBM Plex Sans, sans-serif', fontWeight:500,
+        outlineWidth:2.5, outlineColor:[6,18,26,235], getTextAnchor:'middle',
+        getAlignmentBaseline:'center', parameters:{depthTest:false}}));
     }
     // Cabeceras (iconos montaña + etiqueta con % de aporte).
     if(scene.heads && D.subs){

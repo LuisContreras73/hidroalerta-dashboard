@@ -5387,6 +5387,7 @@ def main():
         "rios":      json.loads((DATA / "rios.geojson").read_text(encoding="utf-8")),
         "subs":      json.loads((DATA / "sm_subcuencas.geojson").read_text(encoding="utf-8")),
         "puntos":    json.loads((DATA / "puntos.geojson").read_text(encoding="utf-8")),
+        "rios_nombres": json.loads((DATA / "sm_rios_nombres.geojson").read_text(encoding="utf-8")),
         "niveles":   [{"n": n, "c": c, "u": u, "hex": hx} for n, c, u, _t, hx in NIVELES_ALERTA],
         "q90":       UMBRAL_Q90,
     }
