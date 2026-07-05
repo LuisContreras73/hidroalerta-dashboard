@@ -571,9 +571,13 @@ JS = r"""
 
   // Textura del drape con DEBOUNCE: durante un scrub rápido el PNG del día solo se
   // intercambia al pausar ~130 ms (cambiarla cada frame rompe la carga del TerrainLayer).
-  var texCur=null, texTimer=null;
-  function setDrapeTex(p){ if(texTimer) clearTimeout(texTimer);
-    texTimer=setTimeout(function(){ texTimer=null; texCur=p; relayers(); },130); }
+  var texCur=null, texPend=null, texTimer=null;
+  function setDrapeTex(p){
+    if(p===texPend) return;   // ya en camino: NO reinicies el timer (los pulsos
+    texPend=p;                // llaman aquí a 25 fps y lo dejaban congelado)
+    if(texTimer) clearTimeout(texTimer);
+    texTimer=setTimeout(function(){ texTimer=null; texCur=texPend; relayers(); },130);
+  }
   function currentTexture(){
     var p=null;
     if(tl.kind==='clima')       p='media/clima/'+tl.sub+'_'+pad(tl.idx+1)+'.png';
