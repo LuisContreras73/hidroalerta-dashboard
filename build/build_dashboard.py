@@ -462,10 +462,12 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         location=[-11.30, -76.85],
         zoom_start=10,
         tiles=None,
-        control_scale=False,   # escala métrica propia (sin millas), ver script abajo
+        control_scale=True,
     )
-    m.get_root().script.add_child(folium.Element(
-        f"L.control.scale({{metric:true,imperial:false}}).addTo({m.get_name()});"))
+    # solo la línea métrica (la imperial se oculta por CSS; inyectar JS aquí rompe
+    # el orden de render de folium y deja el mapa en blanco — no repetir).
+    m.get_root().header.add_child(folium.Element(
+        "<style>.leaflet-control-scale-line:nth-child(2){display:none}</style>"))
     # ── Capas base (toggleables) ────────────────────────────────────────────
     # Por defecto: Esri World Imagery (satélite). Alternativa clara: Positron.
     folium.TileLayer(
