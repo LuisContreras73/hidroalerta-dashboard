@@ -1828,20 +1828,34 @@ def construir_eventos_impactos() -> str:
 
     # Payload para el comparador (fechas legibles + pie honesto por concepto).
     fl, ag = jx.get("flood", {}), jx.get("agri", {})
-    hu = fl.get("huella", {})
+    # Paradas del "recorrido del río": puntos sobre el cauce principal (red D8)
+    # dentro del AOI, en % del encuadre (x desde el oeste, y desde el norte).
+    # El zoom acerca ambas imágenes en sincronía manteniendo el deslizador.
+    tour = [
+        {"x": 50, "y": 50, "k": 1, "nombre": "Vista completa",
+         "nota": "Todo el valle bajo; el cauce es la franja diagonal."},
+        {"x": 92.1, "y": 13.9, "k": 2.8, "nombre": "Puerta del valle",
+         "nota": "Aguas arriba de Huaral: el cauce llega angosto entre cerros… "
+                 "y sale del evento convertido en una franja ancha de sedimento."},
+        {"x": 74.3, "y": 39.0, "k": 2.8, "nombre": "Palpa–Caqui",
+         "nota": "Sectores señalados como vulnerables desde 2017: la crecida "
+                 "se comió vegetación ribereña y dejó el cauce blanco."},
+        {"x": 66.5, "y": 65.4, "k": 2.8, "nombre": "Aucallama–Manchuria",
+         "nota": "Aquí el desborde de 2017 arrasó +200 ha de cultivos; en 2023 "
+                 "el cauce volvió a ensancharse contra los campos."},
+        {"x": 55.3, "y": 91.9, "k": 2.8, "nombre": "Hacia la desembocadura",
+         "nota": "El tramo final antes de Chancay: compare el ancho del cauce "
+                 "y el sedimento que baja hacia el mar."},
+    ]
     payload = {
         "flood": {
             "lab_b": fdate(fl["antes"]["fecha"]) + " · antes",
             "lab_a": fdate(fl["despues"]["fecha"]) + " · tras la crecida",
-            "huella": hu.get("file"),
-            "huella_lab": ("Huella junto al cauce · ≈"
-                           f"{str(hu.get('arrasado_ha', 75)).replace('.', ',')} ha"),
+            "tour": tour,
             "cap": ("<b>Valle bajo Chancay–Aucallama, antes y 4 días después del pico del "
-                    "Ciclón Yaku</b> (113,4 m³/s el 15 de marzo de 2023). Qué mirar: el "
-                    "<b>cauce del río</b> —la franja diagonal— sale ensanchado y cargado de "
-                    "sedimento, y la vegetación pegada al cauce desaparece en varios tramos. "
-                    "Active la <b>huella</b> para resaltar esa pérdida (cambio detectado en "
-                    "un corredor de 500 m del cauce). Imágenes Sentinel-2 (ESA)."),
+                    "Ciclón Yaku</b> (113,4 m³/s el 15 de marzo de 2023). Use el "
+                    "<b>recorrido del río</b> para acercarse a cada tramo del cauce y "
+                    "arrastre el divisor para comparar. Imágenes Sentinel-2 (ESA)."),
         },
         "agri": {
             "lab_b": fdate(ag["antes"]["fecha"]) + " · 2017",
@@ -1869,15 +1883,17 @@ def construir_eventos_impactos() -> str:
           <button type="button" class="jx-tab" data-c="agri">Crecimiento del cultivo (2017 → 2025)</button>
         </div>
         <div class="jx-stage" id="jx-stage">
-          <img class="jx-img jx-after" id="jx-after" alt="Imagen satelital, después" draggable="false">
-          <img class="jx-img jx-huella" id="jx-huella" alt="" aria-hidden="true" draggable="false" hidden>
-          <img class="jx-img jx-before" id="jx-before" alt="Imagen satelital, antes" draggable="false">
+          <div class="jx-img jx-after" id="jx-after" role="img" aria-label="Imagen satelital, después"></div>
+          <div class="jx-img jx-before" id="jx-before" role="img" aria-label="Imagen satelital, antes"></div>
           <div class="jx-line" id="jx-line"><span class="jx-grip" aria-hidden="true">&#8646;</span></div>
           <span class="jx-tag jx-tag-l" id="jx-tag-b"></span>
           <span class="jx-tag jx-tag-r" id="jx-tag-a"></span>
-          <button type="button" class="jx-huella-btn" id="jx-huella-btn" aria-pressed="false" hidden>
-            <span class="jx-huella-sw" aria-hidden="true"></span><span id="jx-huella-lab"></span>
-          </button>
+          <div class="jx-note" id="jx-note" hidden></div>
+        </div>
+        <div class="jx-tour" id="jx-tour" hidden>
+          <button type="button" class="jx-play" id="jx-play" aria-label="Recorrer el río parada a parada">
+            <span aria-hidden="true">&#9654;</span>&nbsp;Recorrer el río</button>
+          <div class="jx-stops" id="jx-stops" role="group" aria-label="Paradas del recorrido"></div>
         </div>
         <p class="jx-cap nota" id="jx-cap"></p>
       </div>
@@ -2736,17 +2752,27 @@ CSS_RESULTADOS = r"""
 .jx-tab.is-active{background:#0B6E8C;color:#fff;border-color:#0B6E8C;}
 .jx-stage{position:relative;width:100%;aspect-ratio:1000/814;border-radius:12px;overflow:hidden;
   cursor:ew-resize;user-select:none;background:#0A1A22;box-shadow:0 8px 30px rgba(10,61,84,.18);}
-.jx-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;-webkit-user-drag:none;}
+.jx-img{position:absolute;inset:0;width:100%;height:100%;
+  background-size:100% 100%;background-position:50% 50%;background-repeat:no-repeat;
+  transition:background-size 1.1s cubic-bezier(.4,0,.2,1),background-position 1.1s cubic-bezier(.4,0,.2,1);}
+@media (prefers-reduced-motion:reduce){.jx-img{transition:none;}}
 .jx-after{z-index:1;} .jx-before{z-index:2;clip-path:inset(0 50% 0 0);}
-.jx-huella{z-index:1;pointer-events:none;}
-.jx-huella-btn{position:absolute;left:12px;bottom:12px;z-index:4;display:inline-flex;
-  align-items:center;gap:7px;font-family:IBM Plex Sans,system-ui;font-size:11.5px;
-  color:#fff;background:rgba(10,26,34,.78);border:1px solid rgba(255,255,255,.25);
-  padding:6px 12px;border-radius:999px;cursor:pointer;transition:.16s;
-  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);}
-.jx-huella-btn:hover{border-color:#FF4A2E;}
-.jx-huella-btn.is-on{background:rgba(160,42,20,.82);border-color:#FF4A2E;}
-.jx-huella-sw{width:11px;height:11px;border-radius:3px;background:#FF4A2E;opacity:.9;}
+.jx-note{position:absolute;left:12px;bottom:12px;right:56px;z-index:4;max-width:520px;
+  font-family:IBM Plex Sans,system-ui;font-size:12.5px;line-height:1.5;color:#f2f8fb;
+  background:rgba(9,22,31,.82);border:1px solid rgba(120,170,190,.3);border-radius:10px;
+  padding:9px 13px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:none;}
+.jx-note b{color:#7FD3E3;}
+.jx-tour{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.jx-play{font-family:IBM Plex Sans,system-ui;font-size:13px;font-weight:600;color:#fff;
+  background:#0B6E8C;border:1px solid #0B6E8C;padding:8px 16px;border-radius:999px;
+  cursor:pointer;transition:.16s;white-space:nowrap;}
+.jx-play:hover{background:#0A5A73;}
+.jx-play.is-on{background:#C0392B;border-color:#C0392B;}
+.jx-stops{display:flex;gap:6px;flex-wrap:wrap;}
+.jx-stop{font-family:IBM Plex Sans,system-ui;font-size:12px;color:#5B6B78;background:#fff;
+  border:1px solid #D5DEE6;padding:7px 12px;border-radius:999px;cursor:pointer;transition:.16s;}
+.jx-stop:hover{border-color:#1BA8C4;color:#0B6E8C;}
+.jx-stop.is-active{background:#EAF4F8;border-color:#0B6E8C;color:#0B6E8C;font-weight:600;}
 .jx-line{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;z-index:3;
   transform:translateX(-1px);box-shadow:0 0 0 1px rgba(0,0,0,.28);pointer-events:none;}
 .jx-grip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;
@@ -5127,22 +5153,63 @@ JS_JUXTAPOSE = """
   var stage=document.getElementById('jx-stage'), after=document.getElementById('jx-after'),
       before=document.getElementById('jx-before'), line=document.getElementById('jx-line'),
       tagB=document.getElementById('jx-tag-b'), tagA=document.getElementById('jx-tag-a'),
-      cap=document.getElementById('jx-cap'), hu=document.getElementById('jx-huella'),
-      huBtn=document.getElementById('jx-huella-btn'), huLab=document.getElementById('jx-huella-lab');
+      cap=document.getElementById('jx-cap'), note=document.getElementById('jx-note'),
+      tourBar=document.getElementById('jx-tour'), stopsEl=document.getElementById('jx-stops'),
+      playBtn=document.getElementById('jx-play');
   if(!stage||!before) return;
-  var concept='flood', pos=50, dragging=false, inited=false, huOn=false;
+  var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var concept='flood', pos=50, dragging=false, inited=false;
+  var curStop=0, playTimer=null;
   function setPos(p){ pos=Math.max(2,Math.min(98,p));
     before.style.clipPath='inset(0 '+(100-pos)+'% 0 0)'; line.style.left=pos+'%'; }
-  function setHuella(on){ huOn=on; if(hu) hu.hidden=!on;
-    if(huBtn){ huBtn.setAttribute('aria-pressed', on?'true':'false'); huBtn.classList.toggle('is-on', on); } }
+  // Zoom sincronizado por background: la imagen k× más grande, centrada en el punto
+  // (tx,ty)% del encuadre. P% de background-position alinea el punto P% de la imagen
+  // con el P% del contenedor → P = (t·k − 50)/(k − 1).
+  function bgZoom(el, tx, ty, k){
+    if(k<=1){ el.style.backgroundSize='100% 100%'; el.style.backgroundPosition='50% 50%'; return; }
+    var px=Math.max(0,Math.min(100,(tx*k-50)/(k-1)));
+    var py=Math.max(0,Math.min(100,(ty*k-50)/(k-1)));
+    el.style.backgroundSize=(k*100)+'% '+(k*100)+'%';
+    el.style.backgroundPosition=px+'% '+py+'%';
+  }
+  function goStop(i, fromPlay){
+    var m=M[concept]; if(!m||!m.tour) return;
+    curStop=i; var s=m.tour[i]; if(!s) return;
+    bgZoom(before, s.x, s.y, s.k); bgZoom(after, s.x, s.y, s.k);
+    if(note){ if(s.k>1){ note.hidden=false;
+        note.innerHTML='<b>'+s.nombre+'</b> · '+s.nota; }
+      else note.hidden=true; }
+    var chips=stopsEl?stopsEl.children:[];
+    for(var j=0;j<chips.length;j++){ chips[j].classList.toggle('is-active', j===i); }
+    if(!fromPlay) stopPlay();
+  }
+  function stopPlay(){ if(playTimer){ clearInterval(playTimer); playTimer=null; }
+    if(playBtn){ playBtn.classList.remove('is-on'); playBtn.innerHTML='<span aria-hidden="true">&#9654;</span>&nbsp;Recorrer el río'; } }
+  function startPlay(){ if(reduce){ goStop((curStop+1)%(M[concept].tour||[]).length); return; }
+    stopPlay(); playBtn.classList.add('is-on');
+    playBtn.innerHTML='<span aria-hidden="true">&#10073;&#10073;</span>&nbsp;Pausa';
+    var n=(M[concept].tour||[]).length;
+    goStop((curStop+1)%n, true);
+    playTimer=setInterval(function(){ var k=(curStop+1)%n; goStop(k, true);
+      if(k===0) stopPlay(); }, 4200);
+  }
+  function buildTour(m){
+    if(!tourBar||!stopsEl) return;
+    if(!m.tour){ tourBar.hidden=true; return; }
+    tourBar.hidden=false; stopsEl.innerHTML='';
+    m.tour.forEach(function(s,i){
+      var b=document.createElement('button'); b.type='button';
+      b.className='jx-stop'+(i===0?' is-active':'');
+      b.textContent=(i===0? s.nombre : i+'. '+s.nombre);
+      b.addEventListener('click',function(){ goStop(i); });
+      stopsEl.appendChild(b);
+    });
+  }
   function load(c){ concept=c; var m=M[c]; if(!m) return;
-    after.src='media/juxtapose/'+c+'_despues.jpg';
-    before.src='media/juxtapose/'+c+'_antes.jpg';
+    after.style.backgroundImage='url(media/juxtapose/'+c+'_despues.jpg)';
+    before.style.backgroundImage='url(media/juxtapose/'+c+'_antes.jpg)';
     tagB.textContent=m.lab_b; tagA.textContent=m.lab_a; cap.innerHTML=m.cap;
-    // huella de la crecida (solo flood): overlay sobre el "después"
-    if(m.huella && hu){ hu.src=m.huella; if(huBtn){ huBtn.hidden=false; huLab.textContent=m.huella_lab||'Huella de la crecida'; } }
-    else { if(huBtn) huBtn.hidden=true; }
-    setHuella(false);
+    stopPlay(); buildTour(m); goStop(0);
     var tabs=document.querySelectorAll('.jx-tab');
     for(var i=0;i<tabs.length;i++){ tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-c')===c); }
     setPos(50); }
@@ -5154,8 +5221,7 @@ JS_JUXTAPOSE = """
   stage.addEventListener('touchstart',down,{passive:false}); window.addEventListener('touchmove',moveH,{passive:false}); window.addEventListener('touchend',up);
   var tabs=document.querySelectorAll('.jx-tab');
   for(var i=0;i<tabs.length;i++){ tabs[i].addEventListener('click',function(){ load(this.getAttribute('data-c')); }); }
-  if(huBtn) huBtn.addEventListener('click',function(e){ e.stopPropagation(); setHuella(!huOn); });
-  if(huBtn) huBtn.addEventListener('mousedown',function(e){ e.stopPropagation(); });
+  if(playBtn) playBtn.addEventListener('click',function(){ playTimer?stopPlay():startPlay(); });
   function boot(){ var p=document.getElementById('tab-clima'); if(!p||p.hidden||inited) return; inited=true; load('flood'); }
   document.addEventListener('hidroalerta:tabshown',function(){ setTimeout(boot,80); });
   setTimeout(boot,400);
