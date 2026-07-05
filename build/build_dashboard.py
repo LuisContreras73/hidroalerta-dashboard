@@ -4469,8 +4469,9 @@ JS_TABS = """
     });
 
     // Deep-link inicial por hash; si no, primera pestaña ("Resumen").
+    // Soporta sub-rutas de capítulo: '#recorrido/yaku' → pestaña 'recorrido'.
     function fromHash(){
-      var h = (location.hash || '').replace('#','');
+      var h = (location.hash || '').replace('#','').split('/')[0];
       for (var k=0;k<tabs.length;k++){
         if (tabs[k].getAttribute('data-tab') === h) return tabs[k];
       }
@@ -5918,6 +5919,7 @@ def main():
         "subs":      json.loads((DATA / "sm_subcuencas.geojson").read_text(encoding="utf-8")),
         "puntos":    json.loads((DATA / "puntos.geojson").read_text(encoding="utf-8")),
         "rios_nombres": json.loads((DATA / "sm_rios_nombres.geojson").read_text(encoding="utf-8")),
+        "trips":     json.loads((DATA / "sm_trips.json").read_text(encoding="utf-8")),
         "niveles":   [{"n": n, "c": c, "u": u, "hex": hx} for n, c, u, _t, hx in NIVELES_ALERTA],
         "q90":       UMBRAL_Q90,
     }

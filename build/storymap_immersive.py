@@ -106,8 +106,9 @@ def _capitulos(meta) -> list:
              titulo="Cuando el río creció de verdad",
              parrafos=[
                  "En marzo de 2023 el <b>Ciclón Yaku</b> descargó lluvias extraordinarias "
-                 "sobre la costa central. Avance día a día: la lluvia se enciende sobre la "
-                 "cuenca mientras el <b>caudal observado</b> en Santo Domingo se dispara.",
+                 "sobre la costa central. <b>Siga desplazándose</b>: el scroll recorre los "
+                 "46 días del evento — la lluvia se enciende sobre la cuenca, los pulsos del "
+                 "río se aceleran y el <b>caudal observado</b> en Santo Domingo se dispara.",
                  "De un caudal habitual cercano a <b>17 m³/s</b>, el río llegó a "
                  "<b>113 m³/s el 15 de marzo</b> —más de seis veces lo normal, nivel "
                  "<b>Fuerte</b> (naranja) del protocolo RM-049—. Aguas abajo, una crecida así "
@@ -295,6 +296,9 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
         </button>
         <div class="sm-drag-hint" id="sm-drag-hint" aria-hidden="true">Arrastre para rotar · rueda del ratón bloqueada</div>
 
+        <!-- Puntos de progreso: un punto clicable por capítulo (los construye el JS). -->
+        <nav class="sm-dots" id="sm-dots" aria-label="Capítulos del recorrido"></nav>
+
         <!-- Pista de scroll (desaparece tras el primer avance). -->
         <div class="sm-scroll-hint" id="sm-scroll-hint" aria-hidden="true">
           <span>Desplácese para viajar</span>
@@ -421,6 +425,13 @@ CSS = r"""
 .sm-drag-hint{position:absolute;right:20px;bottom:58px;z-index:4;font-size:10.5px;
   letter-spacing:.03em;color:rgba(214,228,236,.62);pointer-events:none;transition:opacity .5s;text-align:right;}
 .sm-immersive.is-moved .sm-drag-hint{opacity:0;}
+.sm-dots{position:absolute;right:16px;top:50%;transform:translateY(-50%);z-index:5;
+  display:flex;flex-direction:column;gap:9px;}
+.sm-dot{width:9px;height:9px;border-radius:50%;border:1px solid rgba(190,225,240,.55);
+  background:rgba(9,22,31,.5);cursor:pointer;padding:0;transition:.2s;}
+.sm-dot:hover{border-color:#7FD3E3;transform:scale(1.25);}
+.sm-dot.is-on{background:#35C8E8;border-color:#35C8E8;box-shadow:0 0 8px rgba(53,200,232,.6);}
+@media (max-width:760px){.sm-dots{display:none;}}
 @media (prefers-reduced-motion:reduce){.sm-spin-btn.is-on .sm-spin-ico{animation:none;}}
 .sm-scroll-hint{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:3;
   display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11.5px;
@@ -430,6 +441,9 @@ CSS = r"""
 .sm-immersive.is-moved .sm-scroll-hint{opacity:0;}
 .sm-steps{position:relative;z-index:2;margin-top:-100vh;pointer-events:none;}
 .sm-step{min-height:100vh;display:flex;align-items:center;padding:0 36px;pointer-events:none;}
+/* Capítulo Yaku: paso alto (scroll-scrub) — el scroll recorre los 46 días del evento. */
+.sm-step[data-cap="yaku"]{min-height:340vh;align-items:flex-start;}
+.sm-step[data-cap="yaku"] .sm-card{position:sticky;top:14vh;}
 .sm-card{pointer-events:auto;max-width:430px;padding:26px 28px;border-radius:18px;
   background:rgba(8,20,28,.60);backdrop-filter:blur(14px) saturate(1.2);
   -webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(120,170,190,.24);
@@ -484,6 +498,7 @@ JS = r"""
   var BOUNDS=null, DECODER=null, EMAX=5000;
   var view=null, tweenRAF=null, orbitRAF=null, orbit=false, spin=false, curCap=null;
   var reveal=0, revRAF=null, spread=0, spreadRAF=null;
+  var tripsOn=false, tripsRAF=null, tripsT=0, tripsSpeed=1, tripsLast=0;
   var scene={};                               // flags del capítulo actual
   var tl={kind:null,sub:null,idx:0,n:12,playing:false,timer:null};
   var hydroInit=false;
@@ -513,13 +528,13 @@ JS = r"""
   var SCENES={
     origen:   {globe:true},
     cuenca:   {flat2d:true, pitch:0, bearing:0,  view:'basin', reveal:0, subs:true},
-    relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true,rivnames:true, orbit:true},
-    cabeceras:{tex:'satellite',pitch:50,bearing:-18,view:'head',  reveal:1, rivers:true,rivnames:true,points:true,heads:true,orbit:true},
+    relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true,rivnames:true, orbit:true, trips:true},
+    cabeceras:{tex:'satellite',pitch:50,bearing:-18,view:'head',  reveal:1, rivers:true,rivnames:true,points:true,heads:true,orbit:true,trips:true},
     clima:    {tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.7,rivers:true,rivnames:true,heads:true,tl:'clima'},
     invisible:{tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.6,rivers:true,rivnames:true,tl:'era5'},
     integracion:{stack:true,   pitch:54,bearing:22, view:'stack'},
-    yaku:     {tex:'relief',   pitch:54,bearing:-6, view:'valley',reveal:0.85,rivers:true,rivnames:true,points:true,tl:'evento'},
-    alerta:   {tex:'satellite',pitch:42,bearing:0,  view:'basin', reveal:0.55,rivers:true,rivnames:true,points:true,plots:true}
+    yaku:     {tex:'relief',   pitch:54,bearing:-6, view:'valley',reveal:0.85,rivers:true,rivnames:true,points:true,tl:'evento',trips:true},
+    alerta:   {tex:'satellite',pitch:42,bearing:0,  view:'basin', reveal:0.55,rivers:true,rivnames:true,points:true,plots:true,trips:true}
   };
   // Sub-variables del timelapse: cmap/campo por tipo.
   var TLSUB={ clima:['precip','temp'], era5:['suelo','nieve','veg'], evento:['pr'] };
@@ -606,6 +621,21 @@ JS = r"""
         getWidth:function(f){return f.properties.main? 4.4 : (0.8+3.0*(f.properties.w||0));},
         widthUnits:'pixels', widthMinPixels:0.9, capRounded:true, jointRounded:true,
         updateTriggers:{getColor:[reveal]}, parameters:{depthTest:true}
+      }));
+    }
+    // Pulsos de agua (TripsLayer): frentes que recorren la red D8 aguas abajo.
+    // Timestamps horneados = distancia a la salida → todos los tramos pulsan en
+    // sincronía (el frente es una iso-distancia que viaja hacia la salida).
+    if(scene.trips && D.trips && !reduce){
+      L.push(new deck.TripsLayer({
+        id:'agua', data:D.trips.trips,
+        getPath:function(d){return d.p.map(function(c){return [c[0],c[1],(c[2]||0)*EXAG+55];});},
+        getTimestamps:function(d){return d.t;},
+        getColor:[150,230,255,235],
+        getWidth:function(d){return 1.4+4.2*(d.w||0.3);},
+        widthUnits:'pixels', widthMinPixels:1.2, capRounded:true, jointRounded:true,
+        trailLength:3.2, currentTime:tripsT, fadeTrail:true, opacity:0.9,
+        pickable:false, parameters:{depthTest:true}
       }));
     }
     // Ríos con NOMBRE (ANA) etiquetados sobre el terreno 3D.
@@ -736,6 +766,14 @@ JS = r"""
   function startOrbit(){ if(reduce) return; if(orbitRAF) cancelAnimationFrame(orbitRAF);
     (function turn(){ if(!orbit){orbitRAF=null;return;} view.bearing=((view.bearing||0)+0.12)%360; apply(); orbitRAF=requestAnimationFrame(turn); })(); }
   function stopOrbit(){ orbit=false; if(orbitRAF) cancelAnimationFrame(orbitRAF); orbitRAF=null; }
+  // Animación de los pulsos de agua (~25 fps; dt acumulativo para poder variar la
+  // velocidad sin saltos — en el capítulo Yaku la velocidad sigue al caudal del día).
+  function startTrips(){ if(reduce||tripsRAF) return; tripsLast=performance.now();
+    (function tick(now){ if(!tripsOn){tripsRAF=null;return;}
+      if(now-tripsLast>=40){ tripsT=(tripsT+(now-tripsLast)/1000*tripsSpeed)%((D.trips&&D.trips.T)||10);
+        tripsLast=now; relayers(); }
+      tripsRAF=requestAnimationFrame(tick); })(performance.now()); }
+  function stopTrips(){ tripsOn=false; if(tripsRAF) cancelAnimationFrame(tripsRAF); tripsRAF=null; }
   // Botón "Girar cuenca": órbita a demanda en cualquier capítulo (además del auto-orbit de escena).
   function updateSpinBtn(){ var b=$('sm-spin-btn'); if(!b) return;
     var lab=$('sm-spin-lab'); b.setAttribute('aria-pressed', orbit?'true':'false');
@@ -790,7 +828,9 @@ JS = r"""
 
   function setFrame(i){
     tl.idx=i;
-    if(tl.kind==='evento'){ $('sm-ctrl-lab').textContent = D.evento.fechas[i]||''; updateHydro(i); }
+    if(tl.kind==='evento'){ $('sm-ctrl-lab').textContent = D.evento.fechas[i]||''; updateHydro(i);
+      // los pulsos de agua corren al ritmo del caudal observado del día
+      var q=D.evento.q[i]; if(q!=null){ tripsSpeed=0.4+2.6*Math.min(1,q/(D.evento.picoQ||113)); } }
     else { $('sm-ctrl-lab').textContent = MESES[i%12]; }
     var sl=$('sm-ctrl-slider'); if(sl && +sl.value!==i) sl.value=i;
     relayers();
@@ -837,6 +877,14 @@ JS = r"""
       ann.push({xref:'paper',x:0.99,y:nv.u,xanchor:'right',yanchor:'bottom',text:nv.n,showarrow:false,font:{size:8,color:nv.hex}});
     });
     if(D.q90!=null) lvl.push({type:'line',xref:'paper',x0:0,x1:1,y0:D.q90,y1:D.q90,line:{color:'#8aa0ac',width:1,dash:'dot'}});
+    // ventana de aviso: los 7 días previos al pico — el margen que un pronóstico
+    // a 7 días habría dado para alertar (anotación factual, no un hindcast).
+    if(ev.picoIdx!=null && ev.picoIdx>=7){
+      lvl.push({type:'rect',xref:'x',yref:'paper',x0:x[ev.picoIdx-7],x1:x[ev.picoIdx],
+        y0:0,y1:1,fillcolor:'rgba(214,137,16,0.10)',line:{width:0},layer:'below'});
+      ann.push({x:x[ev.picoIdx-3],y:0.97,yref:'paper',showarrow:false,
+        text:'ventana de aviso · 7 días',font:{size:8.5,color:'#e8b25c'}});
+    }
     // marca del pico del evento (comunica el máximo aunque el usuario no llegue a él)
     if(ev.picoIdx!=null && q[ev.picoIdx]!=null){
       ann.push({x:x[ev.picoIdx],y:q[ev.picoIdx],text:'pico '+Math.round(q[ev.picoIdx]),
@@ -890,6 +938,7 @@ JS = r"""
   // ── Activar capítulo ──────────────────────────────────────────────────────
   function setScene(id){
     if(id===curCap) return; curCap=id;
+    writeHash(id); updateDots(id);
     var s=SCENES[id]||SCENES.cuenca; scene=s;
     // HUD
     var stepEl=document.querySelector('.sm-step[data-cap="'+id+'"]');
@@ -917,6 +966,11 @@ JS = r"""
     $('sm-hydro').hidden = (s.tl!=='evento');
     if(s.tl==='evento'){ initHydro(); updateHydro(0); }
     showPlots(!!s.plots);
+    // pulsos de agua
+    var wantTrips=(!!s.trips)&&!reduce;
+    if(wantTrips&&!tripsOn){ tripsOn=true; startTrips(); }
+    else if(!wantTrips){ stopTrips(); }
+    if(s.tl!=='evento') tripsSpeed=1;
     // órbita (auto por escena o giro manual persistente)
     orbit=(!!s.orbit)||spin; if(!orbit) stopOrbit();
     // cámara + revelado + capas
@@ -928,10 +982,37 @@ JS = r"""
     // las capas una vez cargada la textura (evita terreno en blanco al aterrizar directo).
     if(s.tl){ setTimeout(function(){ if(curCap===id) relayers(); }, 650); }
   }
+  // Hash compartible por capítulo (#recorrido/<id>) + puntos de progreso.
+  function writeHash(id){
+    if(!active || !history.replaceState) return;
+    try{ history.replaceState(null,'','#recorrido/'+id); }catch(e){}
+  }
+  function updateDots(id){
+    var dots=document.querySelectorAll('.sm-dot');
+    dots.forEach(function(d){ d.classList.toggle('is-on', d.getAttribute('data-cap')===id); });
+  }
+  function buildDots(){
+    var wrap=$('sm-dots'); if(!wrap) return;
+    document.querySelectorAll('.sm-step').forEach(function(st){
+      var id=st.getAttribute('data-cap');
+      var h=st.querySelector('.sm-h'), num=st.querySelector('.sm-num');
+      var b=document.createElement('button'); b.type='button'; b.className='sm-dot';
+      b.setAttribute('data-cap',id);
+      b.setAttribute('aria-label','Capítulo '+(num?num.textContent+' · ':'')+(h?h.textContent:id));
+      b.title=(num?num.textContent+' · ':'')+(h?h.textContent:id);
+      b.addEventListener('click',function(){ st.scrollIntoView({behavior:reduce?'instant':'smooth',block:'center'}); });
+      wrap.appendChild(b);
+    });
+  }
 
   // ── Inicialización deck + observer (perezosa al mostrar la pestaña) ────────
   function init(){
     if(inited) return; inited=true;
+    // captura el destino del enlace profundo ANTES de que el primer setScene
+    // reescriba el hash (#recorrido/origen pisaría el capítulo pedido).
+    var deepTarget=null;
+    if(location.hash.indexOf('#recorrido/')===0){ deepTarget=location.hash.slice(11).replace(/[^a-z]/g,''); }
+    if(!deepTarget){ deepTarget=(location.search.match(/smcap=([a-z]+)/)||[])[1]||null; }
     D=null; try{ D=JSON.parse(document.getElementById('sm-data').textContent); }catch(e){}
     if(!D || typeof deck==='undefined' || !D.terrain){ document.querySelector('.sm-immersive').classList.add('is-fallback'); return; }
     BOUNDS=D.terrain.bounds; DECODER=D.terrain.elevationDecoder; EMAX=D.terrain.elevMax||5000;
@@ -971,13 +1052,37 @@ JS = r"""
     var first=document.querySelector('.sm-step'); if(first){ first.classList.add('is-active'); setScene(first.getAttribute('data-cap')); }
     // pista de scroll: ocultar tras primer scroll dentro del recorrido
     window.addEventListener('scroll', function(){ var im=document.querySelector('.sm-immersive'); if(im) im.classList.add('is-moved'); }, {passive:true,once:true});
-    // Enlace profundo a un capítulo (?smcap=<id>): centra ese paso (útil para compartir/QA).
-    var qp=(location.search.match(/smcap=([a-z]+)/)||[])[1];
-    if(qp){ setTimeout(function(){ var s=document.querySelector('.sm-step[data-cap="'+qp+'"]'); if(s) s.scrollIntoView({block:'center'}); }, 500); }
+    buildDots();
+    // Scroll-scrub del capítulo Yaku: el avance dentro del paso alto (340vh) mapea
+    // al día 0–45 del evento (cuantizado; rAF-throttled). El slider sigue activo.
+    var scrubRAF=null;
+    window.addEventListener('scroll', function(){
+      if(scrubRAF || !active || curCap!=='yaku' || tl.kind!=='evento' || tl.playing) return;
+      scrubRAF=requestAnimationFrame(function(){
+        scrubRAF=null;
+        var st=document.querySelector('.sm-step[data-cap="yaku"]'); if(!st) return;
+        var r=st.getBoundingClientRect(), total=r.height-window.innerHeight;
+        if(total<=0) return;
+        var p=Math.min(1,Math.max(0,-r.top/total));
+        var i=Math.round(p*(tl.n-1));
+        if(i!==tl.idx) setFrame(i);
+      });
+    }, {passive:true});
+    // Enlace profundo a un capítulo (#recorrido/<id> o ?smcap=<id>). Si el destino
+    // usa drape (timelapse), se precalienta el terreno pasando primero por 'relieve'
+    // (evita la malla en blanco del primer render con textura de timelapse).
+    var qp=deepTarget;
+    if(qp && SCENES[qp]){
+      var go=function(id,delay){ setTimeout(function(){
+        var st=document.querySelector('.sm-step[data-cap="'+id+'"]');
+        if(st) st.scrollIntoView({block:'center'}); }, delay); };
+      if(SCENES[qp].tl){ go('relieve',400); go(qp,1500); } else { go(qp,500); }
+    }
   }
 
-  function pause(){ stopOrbit(); stopPlay(); if(globe){ try{globe.controls().autoRotate=false;}catch(e){} } }
+  function pause(){ stopOrbit(); stopPlay(); stopTrips(); if(globe){ try{globe.controls().autoRotate=false;}catch(e){} } }
   function resume(){ if(!inited){ init(); return; } if(scene && scene.orbit){ orbit=true; startOrbit(); }
+    if(scene && scene.trips && !reduce){ tripsOn=true; startTrips(); }
     if(globe && !reduce){ try{globe.controls().autoRotate=true;}catch(e){} } }
 
   // Enganche al sistema de pestañas del dashboard.
