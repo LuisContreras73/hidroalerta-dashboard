@@ -373,6 +373,57 @@ def _drop_icon(color, ring="#FFFFFF"):
     return folium.DivIcon(html=html, icon_size=(20, 20), icon_anchor=(10, 16))
 
 
+def add_umbrales(fig, hasta=None):
+    """Dibuja el umbral de vigilancia + los niveles RM-049 en un gráfico de caudal
+    (auditoría: los niveles del protocolo deben verse en las vistas operativas, con
+    la MISMA semántica de color en todo el sitio — rojo reservado para Extremo).
+    `hasta` limita los niveles dibujados (p.ej. 90 → solo vigilancia y Moderado)."""
+    fig.add_hline(
+        y=UMBRAL_Q90, line=dict(color=COL_WARN, width=1.4, dash="dot"),
+        annotation_text="Vigilancia (P90) 40,9",
+        annotation_position="right",
+        annotation_font=dict(color=COL_WARN, size=10.5, family=FONT_MONO))
+    for n, _c, u, _t, hx in NIVELES_ALERTA:
+        if hasta is not None and u > hasta:
+            continue
+        fig.add_hline(
+            y=u, line=dict(color=hx, width=1.4, dash="dot"),
+            annotation_text=f"{n} {str(round(u,1)).replace('.', ',')}",
+            annotation_position="right",
+            annotation_font=dict(color=hx, size=10.5, family=FONT_MONO))
+
+
+def estado_pill() -> str:
+    """Chip de estado del header (auditoría): muestra la ÚLTIMA observación de caudal
+    con su fecha y el nivel vigente (color por nivel), en lugar del umbral suelto que
+    parecía una alerta activa permanente. El umbral P90 queda como referencia/tooltip."""
+    d = pd.read_csv(DATA / "caudal_obs.csv", parse_dates=["date"]).dropna()
+    fila = d.iloc[-1]
+    q = float(fila.iloc[1])
+    meses = ["ene", "feb", "mar", "abr", "may", "jun",
+             "jul", "ago", "sep", "oct", "nov", "dic"]
+    f = fila["date"]
+    fecha = f"{f.day:02d} {meses[f.month-1]} {f.year}"
+    nivel, color = "Normal", COL_OK
+    if q >= UMBRAL_Q90:
+        nivel, color = "Vigilancia", COL_WARN
+    for n, _c, u, _t, hx in NIVELES_ALERTA:
+        if q >= u:
+            nivel, color = n, hx
+    tip = ("Umbral de vigilancia (percentil 90 del caudal observado): "
+           "40,9 m³/s — el río solo lo supera ~1 de cada 10 días. "
+           "Niveles RM-049: Moderado 87,2 · Fuerte 104,1 · Extremo 117,8 m³/s.")
+    q_txt = f"{q:.1f}".replace(".", ",")
+    return (
+        f'<div class="status-pill" role="status" title="{tip}" '
+        f'aria-label="Última observación de caudal y nivel vigente">'
+        f'<span class="status-dot" style="background:{color};'
+        f'box-shadow:0 0 0 3px {color}29" aria-hidden="true"></span>'
+        f'<span class="status-txt">Últ. obs. {fecha}</span>'
+        f'<span class="status-num" style="color:{color}">{q_txt} m³/s · '
+        f'{nivel.upper()}</span></div>')
+
+
 def _svg_spark(series, color):
     """Mini-sparkline SVG (~230×52) de una serie anual [[año,valor],…]: área + línea +
     punto final, con el primer y último año. Muestra el HISTÓRICO de la estación."""
@@ -411,8 +462,10 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
         location=[-11.30, -76.85],
         zoom_start=10,
         tiles=None,
-        control_scale=True,
+        control_scale=False,   # escala métrica propia (sin millas), ver script abajo
     )
+    m.get_root().script.add_child(folium.Element(
+        f"L.control.scale({{metric:true,imperial:false}}).addTo({m.get_name()});"))
     # ── Capas base (toggleables) ────────────────────────────────────────────
     # Por defecto: Esri World Imagery (satélite). Alternativa clara: Positron.
     folium.TileLayer(
@@ -956,11 +1009,13 @@ def serie_pronostico_datos(fcast: pd.DataFrame, metr: pd.DataFrame):
         "gaps": gaps,
         "disponibles": disponibles,
         "umbral": UMBRAL_Q90,
+        "niveles": [{"n": n, "u": u, "hex": hx} for n, _c, u, _t, hx in NIVELES_ALERTA],
         "colores": COL_FCAST,
         "band_fill": COL_BAND,
         "col_gap": COL_GAP,
         "col_obs": COL_OBS,
         "col_crit": COL_CRIT,
+        "col_warn": COL_WARN,
         "col_border": COL_BORDER,
         "col_surf": COL_SURF,
         "col_ink": COL_INK,
@@ -1131,17 +1186,25 @@ def tabla_metricas_html(metr: pd.DataFrame) -> str:
         sub = metr[metr["lead"] == lead]
         if sub.empty:
             continue
-        # Mejor valor por columna dentro del bloque (para el chip).
+        # Mejor valor por columna dentro del bloque (para el chip). FAR/CSI se
+        # comparan solo entre modelos que SÍ emiten alertas (POD>0).
         best = {}
         for c in cols:
-            best[c] = sub[c].max() if MEJOR_MAYOR[c] else sub[c].min()
+            base = sub[sub["POD"] > 0] if c in ("FAR", "CSI") else sub
+            if base.empty or base[c].dropna().empty:
+                best[c] = None
+                continue
+            best[c] = base[c].max() if MEJOR_MAYOR[c] else base[c].min()
         first = True
         n_mod = len(sub)
         for _, r in sub.iterrows():
+            # sin alertas emitidas (POD=0): CSI/FAR degeneran — se muestran como '—'
+            # y NUNCA se resaltan (un FAR=0 por no alertar no es un logro operativo).
+            sin_alertas = (r["POD"] == 0)
             celdas = []
             for c in cols:
                 v = r[c]
-                if pd.isna(v):
+                if pd.isna(v) or (sin_alertas and c in ("FAR", "CSI")):
                     celdas.append("<td class='num na'>—</td>")
                     continue
                 txt = f"{v:.3f}" if c != "MAE" else f"{v:.2f}"
@@ -1166,19 +1229,27 @@ def tabla_metricas_html(metr: pd.DataFrame) -> str:
             first = False
     encabezado = "".join(f"<th>{c}</th>" for c in cols)
     return f"""
+    <p class="nota" style="margin-bottom:8px"><b>Evaluación:</b> entrenamiento hasta
+    2023 · <b>prueba independiente 2024–2025</b> (N ≈ 420–423 días con aforo por
+    horizonte). Chip = mejor valor del horizonte · fila resaltada = modelo propuesto.</p>
     <div class="tabla-scroll">
     <table class="metricas">
       <thead><tr><th>Horizonte</th><th>Modelo</th>{encabezado}</tr></thead>
       <tbody>{''.join(filas)}</tbody>
     </table>
     </div>
-    <p class="nota">NSE y KGE: 1 = ajuste perfecto. MAE y CRPS: menor es mejor
-    (m³/s). CSI y POD: mayor es mejor; FAR (tasa de falsas alarmas): menor es
-    mejor. El chip resalta el mejor valor de cada columna dentro del horizonte.
-    <b>Persistencia</b> es un baseline de referencia (naive): repite el último
-    caudal observado, por lo que domina el NSE a 1 día por construcción sin
-    pronosticar cambios. <b>RA-TFT</b> es el modelo de pronóstico propuesto,
-    evaluado sin contaminación del objetivo.</p>
+    <p class="nota">NSE y KGE: 1 = ajuste perfecto. MAE: menor es mejor (m³/s).
+    CRPS: calidad probabilística como pérdida pinball media sobre los cuantiles
+    emitidos (∝ CRPS/2; menor es mejor, comparable entre modelos; en los
+    deterministas equivale a MAE/2). POD: fracción de crecidas detectadas; FAR:
+    fracción de alertas falsas; CSI combina ambas. «—» en FAR/CSI: el modelo no
+    emitió ninguna alerta en ese horizonte (POD = 0), por lo que la métrica
+    degenera y no se compara. <b>Persistencia</b> es el baseline naive (repite el
+    último caudal observado y domina a 1 día por construcción). <b>HydroST</b> se
+    evalúa de forma determinista en todos los horizontes; solo emite cuantiles
+    (CRPS) a 1–2 días y no dispara alertas a ≥3 días. Las métricas de alerta se
+    calculan sobre pocos eventos de excedencia (registro de prueba corto):
+    interprételas con cautela.</p>
     """
 
 
@@ -1269,11 +1340,8 @@ def construir_evento(fcast: pd.DataFrame) -> str:
         marker=dict(color=COL_INK, size=6, line=dict(width=0)),
         name="Observado (aforo)", hovertemplate="Observado %{y:.1f} m³/s"))
 
-    fig.add_hline(
-        y=UMBRAL_Q90, line=dict(color=COL_CRIT, width=1.6, dash="dot"),
-        annotation_text=f"Vigilancia Q90 = {UMBRAL_Q90} m³/s",
-        annotation_position="top left",
-        annotation_font=dict(color=COL_CRIT, size=12, family=FONT_MONO))
+    # niveles operativos: vigilancia + Moderado (los superiores exceden el rango del zoom)
+    add_umbrales(fig, hasta=95)
 
     # Conmutador lead 1 / lead 7 (botones que alternan visibilidad).
     def vis_para(lead):
@@ -1592,7 +1660,7 @@ def bloque_embeddings(cfg_json: str) -> str:
     reducidas y atenuadas, dando profundidad. Navegación: flechas prev/next +
     puntos + teclado (←/→); transición 3D ~450ms. Un único conmutador (3 botones
     toggle) recolorea la tarjeta activa —magnitud del caudal, crecida vs base
-    (Q90) o temporada—. Model-agnóstico (no supervisado). Hover con fecha, q,
+    (P90) o temporada—. Model-agnóstico (no supervisado). Hover con fecha, q,
     régimen y temporada (SIN sincronización entre tarjetas).
 
     Los divs de las tarjetas (uno por método) se crean vacíos; el JS (JS_EMBED)
@@ -1600,7 +1668,7 @@ def bloque_embeddings(cfg_json: str) -> str:
     # Conmutador de coloración (3 opciones tipo segmented control).
     coloraciones = [
         ("q", "Magnitud del caudal"),
-        ("reg", "Crecida vs base (Q90)"),
+        ("reg", "Crecida vs base (P90)"),
         ("temp", "Temporada"),
     ]
     # Conmutador de coloración: grupo de botones tipo toggle (aria-pressed).
@@ -1676,7 +1744,7 @@ def bloque_embeddings(cfg_json: str) -> str:
     los ejes no tienen unidades físicas (son coordenadas de la proyección). El
     objetivo del embedding es ver cómo se <b>agrupan</b> los datos: recorrer los
     <b>ocho métodos</b> (con las flechas o los puntos) y las <b>tres
-    coloraciones</b> —magnitud del caudal, crecida vs base (Q90) y temporada—
+    coloraciones</b> —magnitud del caudal, crecida vs base (P90) y temporada—
     ayuda a juzgar qué estructura de régimen capta cada uno. La tarjeta central
     es interactiva (pasa el cursor para ver fecha, caudal, régimen y temporada).
     La <b>silueta</b> mide cuán bien se separan crecida y base (mayor = mejor).
@@ -1758,19 +1826,28 @@ def construir_eventos_impactos() -> str:
 
     # Payload para el comparador (fechas legibles + pie honesto por concepto).
     fl, ag = jx.get("flood", {}), jx.get("agri", {})
+    hu = fl.get("huella", {})
     payload = {
         "flood": {
-            "lab_b": fdate(fl["antes"]["fecha"]), "lab_a": fdate(fl["despues"]["fecha"]),
-            "cap": ("Antes y después del paso del <b>Ciclón Yaku</b> por el valle bajo. "
-                    "La escena posterior —semanas tras el pico de 113,4 m³/s del 15 de marzo de 2023— "
-                    "muestra el rebrote y las huellas de sedimento que dejó la crecida sobre los cultivos "
-                    "de Aucallama–Chancay. Imágenes Sentinel-2 (ESA)."),
+            "lab_b": fdate(fl["antes"]["fecha"]) + " · antes",
+            "lab_a": fdate(fl["despues"]["fecha"]) + " · tras la crecida",
+            "huella": hu.get("file"),
+            "huella_lab": ("Huella junto al cauce · ≈"
+                           f"{str(hu.get('arrasado_ha', 75)).replace('.', ',')} ha"),
+            "cap": ("<b>Valle bajo Chancay–Aucallama, antes y 4 días después del pico del "
+                    "Ciclón Yaku</b> (113,4 m³/s el 15 de marzo de 2023). Qué mirar: el "
+                    "<b>cauce del río</b> —la franja diagonal— sale ensanchado y cargado de "
+                    "sedimento, y la vegetación pegada al cauce desaparece en varios tramos. "
+                    "Active la <b>huella</b> para resaltar esa pérdida (cambio detectado en "
+                    "un corredor de 500 m del cauce). Imágenes Sentinel-2 (ESA)."),
         },
         "agri": {
-            "lab_b": fdate(ag["antes"]["fecha"]), "lab_a": fdate(ag["despues"]["fecha"]),
-            "cap": ("Expansión del cultivo en la llanura de inundación de Aucallama–Manchuria entre "
-                    "2017 y 2025: más superficie sembrada y más población en la zona expuesta a las "
-                    "crecidas del Chancay. Imágenes Sentinel-2 (ESA)."),
+            "lab_b": fdate(ag["antes"]["fecha"]) + " · 2017",
+            "lab_a": fdate(ag["despues"]["fecha"]) + " · 2025",
+            "cap": ("<b>Expansión del cultivo en la llanura de inundación</b> (Aucallama–"
+                    "Manchuria, 2017 → 2025): más superficie sembrada y más población "
+                    "expuesta a las crecidas del Chancay — el riesgo crece aunque el río "
+                    "sea el mismo. Imágenes Sentinel-2 (ESA)."),
         },
     }
     pj = json.dumps(payload, ensure_ascii=False)
@@ -1791,10 +1868,14 @@ def construir_eventos_impactos() -> str:
         </div>
         <div class="jx-stage" id="jx-stage">
           <img class="jx-img jx-after" id="jx-after" alt="Imagen satelital, después" draggable="false">
+          <img class="jx-img jx-huella" id="jx-huella" alt="" aria-hidden="true" draggable="false" hidden>
           <img class="jx-img jx-before" id="jx-before" alt="Imagen satelital, antes" draggable="false">
           <div class="jx-line" id="jx-line"><span class="jx-grip" aria-hidden="true">&#8646;</span></div>
           <span class="jx-tag jx-tag-l" id="jx-tag-b"></span>
           <span class="jx-tag jx-tag-r" id="jx-tag-a"></span>
+          <button type="button" class="jx-huella-btn" id="jx-huella-btn" aria-pressed="false" hidden>
+            <span class="jx-huella-sw" aria-hidden="true"></span><span id="jx-huella-lab"></span>
+          </button>
         </div>
         <p class="jx-cap nota" id="jx-cap"></p>
       </div>
@@ -1871,11 +1952,12 @@ def kpi_cards(serie: pd.DataFrame, metr: pd.DataFrame) -> str:
         ("NSE · 1 día", f"{nse1:.2f}", "", "Eficiencia Nash–Sutcliffe del modelo "
          "propuesto (RA-TFT) a un día de horizonte", "acc"),
         ("POD · 1 día", f"{pod1:.2f}", "", "Probabilidad de detección de crecidas "
-         "(umbral Q90) del modelo propuesto a un día", "acc"),
-        ("FAR · 1 día", f"{far1:.2f}", "", "Tasa de falsas alarmas (umbral Q90) "
-         "del modelo propuesto a un día", "acc"),
-        ("Vigilancia Q90", "40.9", "m³/s", "Nivel de vigilancia de crecidas "
-         "(percentil 90 de la serie observada)", "crit"),
+         "(umbral de vigilancia P90) del modelo propuesto a un día", "acc"),
+        ("FAR · 1 día", f"{far1:.2f}", "", "Tasa de falsas alarmas (umbral de "
+         "vigilancia P90) del modelo propuesto a un día", "acc"),
+        ("Vigilancia (P90)", "40,9", "m³/s", "Umbral de vigilancia de crecidas: "
+         "percentil 90 del caudal observado (el río lo supera ~1 de cada 10 días)",
+         "crit"),
         ("Días en alerta", f"{dias_alerta}", "días", "Días observados con "
          "caudal en o sobre el umbral (2024–2025)", "crit"),
     ]
@@ -1899,10 +1981,12 @@ def banda_contadores() -> str:
     la animación solo reinicia a 0 y cuenta cuando el movimiento está permitido.
     Números grandes en mono tabular + etiqueta pequeña debajo."""
     # (valor_final, sufijo, etiqueta). El sufijo no se anima (p.ej. rango de años).
+    # honestidad del registro (auditoría): 45 años son de FORZANTES; el aforo
+    # objetivo tiene ~6 años — se declaran por separado para no inflar credenciales.
     contadores = [
-        (45, "", "años de datos", "1981–2025"),
+        (45, "", "años de forzantes", "PISCOp/ERA5 · 1981–2026"),
+        (6, "", "años de aforo", "Santo Domingo · 2020–2026"),
         (9, "", "subcuencas", ""),
-        (6, "", "estaciones", "aforo + meteo"),
         (14, "", "días de horizonte", ""),
         (4, "", "modelos comparados", ""),
     ]
@@ -2226,7 +2310,7 @@ def storymap_datos(meta, subs, lim, estaciones, clima_meta) -> str:
 def construir_evento_recorrido(serie: pd.DataFrame) -> str:
     """Hidrograma del evento (ene–mar 2024) para el capítulo «El evento».
 
-    Usa serie_diaria.csv: observado + mediana P50 + banda P10–P90 + umbral Q90.
+    Usa serie_diaria.csv: observado + mediana P50 + banda P10–P90 + umbral de vigilancia (P90).
     Div propio (grafico-story-evento) para no colisionar con el de Pronóstico."""
     ini, fin = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-03-31")
     w = serie[(serie["date"] >= ini) & (serie["date"] <= fin)].sort_values("date")
@@ -2253,10 +2337,10 @@ def construir_evento_recorrido(serie: pd.DataFrame) -> str:
         name="Caudal observado (aforo)", hovertemplate="Observado %{y:.1f} m³/s"))
 
     fig.add_hline(
-        y=UMBRAL_Q90, line=dict(color=COL_CRIT, width=1.6, dash="dot"),
-        annotation_text=f"Vigilancia Q90 = {UMBRAL_Q90} m³/s",
+        y=UMBRAL_Q90, line=dict(color=COL_WARN, width=1.4, dash="dot"),
+        annotation_text="Vigilancia (P90) 40,9 m³/s",
         annotation_position="top left",
-        annotation_font=dict(color="#e78a7f", size=12, family=FONT_MONO))
+        annotation_font=dict(color="#e8b25c", size=11, family=FONT_MONO))
 
     fig.update_layout(**layout_dark(
         margin=dict(l=54, r=16, t=54, b=34), height=430,
@@ -2542,7 +2626,7 @@ def bloque_recorrido(meta, cfg_json: str, evento_div: str,
 def banda_resultados(metr) -> str:
     """Banda de RESULTADOS clave (lo primero para el tomador de decisiones).
     Enmarca con honestidad: el pronóstico CONTINUO (NSE) se sostiene a varios días,
-    mientras que la detección BINARIA de crecida (umbral Q90) es fiable a 1–2 días."""
+    mientras que la detección BINARIA de crecida (umbral P90) es fiable a 1–2 días."""
     r = metr[metr["model"] == "RA-TFT"].set_index("lead")
     def g(ld, col):
         try: return float(r.loc[ld, col])
@@ -2552,7 +2636,7 @@ def banda_resultados(metr) -> str:
     tarjetas = [
         ("Habilidad de pronóstico", f"{nse1:.2f}", "NSE · 1 día",
          f"NSE {nse7:.2f} a 7 d · {nse14:.2f} a 14 d — habilidad sostenida", COL_ACCENT),
-        ("Detección de crecida · 1 día", f"{pod1*100:.0f}%", "aciertos (POD) · Q90",
+        ("Detección de crecida · 1 día", f"{pod1*100:.0f}%", "aciertos (POD) · P90",
          f"FAR {far1*100:.0f}% · CSI {csi1:.2f} — fiable a 1–2 días", COL_CYAN),
         ("Evento Ciclón Yaku · mar 2023", "113", "m³/s observados",
          "alcanzó nivel <b>Fuerte</b> (naranja) · RM-049", NIVELES_ALERTA[1][4]),
@@ -2570,7 +2654,7 @@ def banda_resultados(metr) -> str:
             f"<div class='res-grid'>{cards}</div>"
             f"<p class='res-foot'>Verificado contra el aforo observado (47E214D2). "
             f"El pronóstico de caudal sostiene habilidad hasta 14 días; la detección "
-            f"binaria de crecida (Q90) es fiable a 1–2 días.</p></section>")
+            f"binaria de crecida (P90) es fiable a 1–2 días.</p></section>")
 
 
 def bloque_protocolo() -> str:
@@ -2652,6 +2736,15 @@ CSS_RESULTADOS = r"""
   cursor:ew-resize;user-select:none;background:#0A1A22;box-shadow:0 8px 30px rgba(10,61,84,.18);}
 .jx-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;-webkit-user-drag:none;}
 .jx-after{z-index:1;} .jx-before{z-index:2;clip-path:inset(0 50% 0 0);}
+.jx-huella{z-index:1;pointer-events:none;}
+.jx-huella-btn{position:absolute;left:12px;bottom:12px;z-index:4;display:inline-flex;
+  align-items:center;gap:7px;font-family:IBM Plex Sans,system-ui;font-size:11.5px;
+  color:#fff;background:rgba(10,26,34,.78);border:1px solid rgba(255,255,255,.25);
+  padding:6px 12px;border-radius:999px;cursor:pointer;transition:.16s;
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);}
+.jx-huella-btn:hover{border-color:#FF4A2E;}
+.jx-huella-btn.is-on{background:rgba(160,42,20,.82);border-color:#FF4A2E;}
+.jx-huella-sw{width:11px;height:11px;border-radius:3px;background:#FF4A2E;opacity:.9;}
 .jx-line{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;z-index:3;
   transform:translateX(-1px);box-shadow:0 0 0 1px rgba(0,0,0,.28);pointer-events:none;}
 .jx-grip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:36px;height:36px;
@@ -2715,6 +2808,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     contadores_html = banda_contadores()
     mapa_srcdoc = mapa_html.replace("&", "&amp;").replace('"', "&quot;")
     hidro_linea, hidro_area = _hero_hidrograma(serie)
+    estado_pill_html = estado_pill()
 
     # Logo (header): imagen embebida si existe; si no, respaldo tipográfico.
     # Altura aumentada a 60px para dar presencia a la marca en la barra.
@@ -2902,11 +2996,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <span class="brand-sub">Pronóstico de caudal y alerta de crecidas</span>
       </span>
     </div>
-    <div class="status-pill" role="status" aria-label="Umbral de alerta">
-      <span class="status-dot" aria-hidden="true"></span>
-      <span class="status-txt">Vigilancia Q90</span>
-      <span class="status-num">{UMBRAL_Q90} m³/s</span>
-    </div>
+    {estado_pill_html}
   </div>
   <nav class="tabbar" aria-label="Secciones del reportaje">
     <div class="tabbar-inner">
@@ -2963,13 +3053,30 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       </section>
 
       <section class="thesis reveal">
-        <p class="eyebrow">La tesis</p>
-        <p class="thesis-body">A un día de horizonte, la <b>persistencia</b> del
-        caudal fija un techo de exactitud difícil de superar; el modelo propuesto
-        lo iguala y mejora la calidad probabilística. El valor real aparece a
-        <b>varios días</b>, donde los forzantes meteorológicos permiten sostener la
-        habilidad y sustentar el aviso de crecida —el margen que da la respuesta hidrológica
-        de la cuenca, de unos cuatro días entre lluvia y caudal.</p>
+        <div>
+          <p class="eyebrow">La tesis</p>
+          <p class="thesis-body">A un día de horizonte, la <b>persistencia</b> del
+          caudal fija un techo de exactitud difícil de superar; el modelo propuesto
+          lo iguala y mejora la calidad probabilística. El valor real aparece a
+          <b>varios días</b>, donde los forzantes meteorológicos permiten sostener la
+          habilidad y sustentar el aviso de crecida —el margen que da la respuesta hidrológica
+          de la cuenca, de unos cuatro días entre lluvia y caudal.</p>
+        </div>
+        <div class="escala-rio" aria-label="Escala de referencia del caudal">
+          <p class="eyebrow">Para dimensionar el río</p>
+          <div class="esc-row"><span class="esc-lab">Caudal habitual</span>
+            <span class="esc-bar"><span style="width:15%;background:{COL_ACCENT}"></span></span>
+            <span class="esc-val mono">≈ 17 m³/s</span></div>
+          <div class="esc-row"><span class="esc-lab">Vigilancia (P90)</span>
+            <span class="esc-bar"><span style="width:36%;background:{COL_WARN}"></span></span>
+            <span class="esc-val mono">40,9 · ×2,4</span></div>
+          <div class="esc-row"><span class="esc-lab">Nivel Moderado</span>
+            <span class="esc-bar"><span style="width:77%;background:#E0A81E"></span></span>
+            <span class="esc-val mono">87,2 · ×5,1</span></div>
+          <div class="esc-row"><span class="esc-lab">Ciclón Yaku (2023)</span>
+            <span class="esc-bar"><span style="width:100%;background:{COL_CRIT}"></span></span>
+            <span class="esc-val mono">113,4 · ×6,6</span></div>
+        </div>
       </section>
 
       {contadores_html}
@@ -3004,9 +3111,11 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         el gráfico muestra la mediana P50 y la banda de incertidumbre P10–P90 para
         2024–2025. Los puntos son el caudal observado, solo donde hay aforo; los
         tramos sombreados señalan periodos sin observación, durante los cuales el
-        pronóstico continúa (valor operacional). La línea punteada roja es el
-        umbral de alerta. HydroST solo dispone de horizonte a 1 día; Persistencia
-        es un baseline puntual (sin banda).</p>
+        pronóstico continúa (valor operacional). Las líneas punteadas marcan el
+        umbral de vigilancia y los niveles RM-049 (Moderado · Fuerte · Extremo;
+        estimación preliminar por registro corto de aforo). En este visor HydroST
+        solo dispone de la serie a 1 día; Persistencia es un baseline puntual
+        (sin banda).</p>
       </header>
       <div class="reveal">{serie_div}</div>
 
@@ -3022,7 +3131,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           seguimiento es estrecho; a siete, la ventana depende de la lluvia
           pronosticada y las trazas se separan del observado.</p>
           <p class="nota">Línea gruesa (agua): modelo propuesto RA-TFT; las demás,
-          de referencia. Punteada roja: umbral Q90.</p>
+          de referencia. Punteadas: vigilancia (P90) y nivel Moderado (RM-049).</p>
         </aside>
       </section>
     </div>
@@ -3042,8 +3151,11 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       </header>
       <div class="reveal">{anim_div}</div>
       <p class="nota reveal">Barras de NSE por modelo; la línea base en cero indica
-      ausencia de habilidad respecto a la media. HydroST solo se evalúa a 2 días de
-      horizonte, por lo que aparece únicamente en ese paso.</p>
+      ausencia de habilidad respecto a la media. Lectura operativa: a 1 día el
+      sistema detecta ~7 de cada 10 crecidas (POD 0,71); a 7–14 días el modelo
+      propuesto es el que mejor conserva la habilidad. HydroST se evalúa de forma
+      determinista en todos los horizontes (su pronóstico probabilístico solo
+      existe a 1–2 días; ver tabla).</p>
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">02 · Métricas</p>
@@ -3178,10 +3290,12 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Representación · embeddings</p>
         <h2 class="h-serif">La estructura de regímenes es intrínseca a los datos</h2>
-        <p class="prose prose-wide">Análisis no supervisado (independiente del modelo)
-        que muestra que la estructura de regímenes (crecida vs base) es intrínseca a
-        los datos; los métodos que respetan la forma temporal (DTW) y la no-linealidad
-        (Isomap) la separan mejor.</p>
+        <p class="prose prose-wide">En sencillo: dejamos que la computadora agrupe
+        los días <b>sin decirle nada</b> — y separa sola los días de crecida de los
+        normales. Es la señal de que el patrón está en los propios datos, no en el
+        modelo. Técnicamente: análisis no supervisado; los métodos que respetan la
+        forma temporal (DTW) y la no-linealidad (Isomap) separan mejor los
+        regímenes.</p>
       </header>
       <div class="reveal">{embed_div}</div>
     </div>
@@ -3332,12 +3446,11 @@ b {{ font-weight:600; }}
 .brand-sub {{ font-size:12px; color:var(--muted);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
 .status-pill {{
-  display:inline-flex; align-items:center; gap:8px; flex:none;
-  background:#FBEEEC; border:1px solid #F0CFC9; color:var(--crit);
+  display:inline-flex; align-items:center; gap:8px; flex:none; cursor:help;
+  background:#F2F6F9; border:1px solid var(--border); color:var(--muted);
   padding:6px 13px; border-radius:999px; font-size:12.5px; font-weight:500;
 }}
-.status-dot {{ width:8px; height:8px; border-radius:50%; background:var(--crit);
-  box-shadow:0 0 0 3px rgba(192,57,43,.16); }}
+.status-dot {{ width:8px; height:8px; border-radius:50%; }}
 .status-txt {{ text-transform:uppercase; letter-spacing:.06em; font-size:11px;
   font-weight:600; }}
 .status-num {{ font-family:var(--mono); font-variant-numeric:tabular-nums;
@@ -3452,6 +3565,7 @@ main {{ display:block; }}
 /* ── Encabezado de sección dentro de pestaña ──────────────────────── */
 .tab-head {{ max-width:none; }}
 .tab-head .h-serif {{ margin-bottom:12px; }}
+.tab-head, .tab-head-sep {{ scroll-margin-top:130px; }}
 .tab-head-sep {{ padding-top:clamp(20px,3vw,36px);
   border-top:1px solid var(--border); }}
 
@@ -3466,7 +3580,17 @@ main {{ display:block; }}
 .nota b {{ color:var(--ink); font-weight:600; }}
 
 /* ── Tesis (bloque destacado) ─────────────────────────────────────── */
-.thesis {{ border-top:1px solid var(--border); padding-top:clamp(24px,3vw,36px); }}
+.thesis {{ border-top:1px solid var(--border); padding-top:clamp(24px,3vw,36px);
+  display:grid; grid-template-columns:minmax(0,1.35fr) minmax(260px,1fr);
+  gap:clamp(24px,4vw,64px); align-items:center; }}
+@media (max-width:860px) {{ .thesis {{ grid-template-columns:1fr; }} }}
+/* escala de referencia del caudal (columna derecha de la tesis) */
+.escala-rio {{ display:flex; flex-direction:column; gap:9px; }}
+.esc-row {{ display:grid; grid-template-columns:118px 1fr auto; gap:10px; align-items:center; }}
+.esc-lab {{ font-size:12px; color:var(--muted); }}
+.esc-bar {{ height:10px; border-radius:5px; background:var(--border); overflow:hidden; }}
+.esc-bar > span {{ display:block; height:100%; border-radius:5px; }}
+.esc-val {{ font-size:11.5px; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; }}
 .thesis-body {{ font-family:var(--serif); font-weight:400;
   font-size:clamp(1.15rem,2vw,1.5rem); line-height:1.5; color:var(--ink);
   max-width:44ch; }}
@@ -4388,7 +4512,7 @@ JS_FORECAST = """
         font:{size:12, family:FS, color:CFG.col_muted}},
       font:{family:FS, size:13, color:CFG.col_ink},
       yaxis:{title:{text:'Caudal (m³/s)', font:{family:FS, size:12, color:CFG.col_muted}},
-        gridcolor:CFG.col_border, zeroline:false, rangemode:'tozero',
+        gridcolor:CFG.col_border, zeroline:false, range:[0,125],
         tickfont:{family:FM, size:11, color:CFG.col_muted}},
       xaxis:{title:'', gridcolor:CFG.col_border, linecolor:CFG.col_border,
         tickfont:{family:FM, size:11, color:CFG.col_muted},
@@ -4408,13 +4532,21 @@ JS_FORECAST = """
         font:{family:FM, size:12, color:CFG.col_ink}},
       modebar:{bgcolor:'rgba(0,0,0,0)', color:CFG.col_muted, activecolor:CFG.colores['RA-TFT']},
       transition:{duration: reduce ? 0 : 350, easing:'cubic-in-out'},
-      shapes: shapes.concat([{ type:'line', xref:'paper', yref:'y',
-        x0:0, x1:1, y0:CFG.umbral, y1:CFG.umbral,
-        line:{color:CFG.col_crit, width:1.6, dash:'dot'}, layer:'above' }]),
-      annotations:[{ xref:'paper', yref:'y', x:0.01, y:CFG.umbral, yanchor:'bottom',
-        xanchor:'left', showarrow:false,
-        text:'Vigilancia Q90 = '+CFG.umbral.toFixed(2)+' m³/s',
-        font:{color:CFG.col_crit, size:12, family:FM} }]
+      // umbral de vigilancia + niveles RM-049 (auditoría: el pronóstico debe poder
+      // leerse contra el protocolo; rojo reservado para Extremo).
+      shapes: shapes.concat(
+        [{ type:'line', xref:'paper', yref:'y', x0:0, x1:1, y0:CFG.umbral, y1:CFG.umbral,
+           line:{color:CFG.col_warn, width:1.4, dash:'dot'}, layer:'above' }],
+        (CFG.niveles||[]).map(function(nv){ return { type:'line', xref:'paper', yref:'y',
+           x0:0, x1:1, y0:nv.u, y1:nv.u,
+           line:{color:nv.hex, width:1.4, dash:'dot'}, layer:'above' }; })),
+      annotations:[{ xref:'paper', yref:'y', x:0.995, y:CFG.umbral, yanchor:'bottom',
+        xanchor:'right', showarrow:false, text:'Vigilancia (P90) 40,9',
+        font:{color:CFG.col_warn, size:11, family:FM} }].concat(
+        (CFG.niveles||[]).map(function(nv){ return { xref:'paper', yref:'y',
+          x:0.995, y:nv.u, yanchor:'bottom', xanchor:'right', showarrow:false,
+          text:nv.n+' '+String(nv.u).replace('.',','),
+          font:{color:nv.hex, size:11, family:FM} }; }))
     };
 
     var config = { displayModeBar:true, displaylogo:false, responsive:true,
@@ -4593,7 +4725,7 @@ JS_EMBED = """
               outlinewidth:0 } } }];
       }
       if (colorMode === 'reg'){
-        // (b) Crecida vs base (Q90): base azul pequeño y tenue (debajo),
+        // (b) Crecida vs base (P90): base azul pequeño y tenue (debajo),
         // crecida roja más marcada (encima). scattergl para densidad fluida.
         var b = split(d,'regimen','base'), c = split(d,'regimen','crecida');
         return [
@@ -4943,9 +5075,13 @@ JS_EXPLORER = """
   function render(i){
     var s=idx.series[i], rows=cache[i]; if(!s||!rows||typeof Plotly==='undefined') return;
     var c=COL[s.variable]||'#0B6E8C';
-    var x=rows.map(function(r){return r[0];}), y=rows.map(function(r){return r[1];});
-    var tr={x:x,y:y,type:'scatter',mode:'lines',line:{color:c,width:1.1},
-      fill:'tozeroy',fillcolor:c+'22',hovertemplate:'%{x|%d %b %Y}<br><b>%{y}</b> '+s.unidad+'<extra></extra>'};
+    // corta la línea en los vacíos (>5 días sin dato): no se dibuja lo que no se midió
+    var x=[],y=[],prev=null;
+    rows.forEach(function(r){ var d=new Date(r[0]+'T00:00:00Z');
+      if(prev&&(d-prev)>5*864e5){ x.push(new Date(prev.getTime()+864e5).toISOString().slice(0,10)); y.push(null); }
+      x.push(r[0]); y.push(r[1]); prev=d; });
+    var tr={x:x,y:y,type:'scatter',mode:'lines',line:{color:c,width:1.25},connectgaps:false,
+      hovertemplate:'%{x|%d %b %Y}<br><b>%{y}</b> '+s.unidad+'<extra></extra>'};
     var lay={margin:{l:56,r:16,t:6,b:34},height:markHeight(),
       paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
       font:{family:'IBM Plex Sans, system-ui',size:12,color:'#0C1E2A'},
@@ -4989,15 +5125,22 @@ JS_JUXTAPOSE = """
   var stage=document.getElementById('jx-stage'), after=document.getElementById('jx-after'),
       before=document.getElementById('jx-before'), line=document.getElementById('jx-line'),
       tagB=document.getElementById('jx-tag-b'), tagA=document.getElementById('jx-tag-a'),
-      cap=document.getElementById('jx-cap');
+      cap=document.getElementById('jx-cap'), hu=document.getElementById('jx-huella'),
+      huBtn=document.getElementById('jx-huella-btn'), huLab=document.getElementById('jx-huella-lab');
   if(!stage||!before) return;
-  var concept='flood', pos=50, dragging=false, inited=false;
+  var concept='flood', pos=50, dragging=false, inited=false, huOn=false;
   function setPos(p){ pos=Math.max(2,Math.min(98,p));
     before.style.clipPath='inset(0 '+(100-pos)+'% 0 0)'; line.style.left=pos+'%'; }
+  function setHuella(on){ huOn=on; if(hu) hu.hidden=!on;
+    if(huBtn){ huBtn.setAttribute('aria-pressed', on?'true':'false'); huBtn.classList.toggle('is-on', on); } }
   function load(c){ concept=c; var m=M[c]; if(!m) return;
     after.src='media/juxtapose/'+c+'_despues.jpg';
     before.src='media/juxtapose/'+c+'_antes.jpg';
     tagB.textContent=m.lab_b; tagA.textContent=m.lab_a; cap.innerHTML=m.cap;
+    // huella de la crecida (solo flood): overlay sobre el "después"
+    if(m.huella && hu){ hu.src=m.huella; if(huBtn){ huBtn.hidden=false; huLab.textContent=m.huella_lab||'Huella de la crecida'; } }
+    else { if(huBtn) huBtn.hidden=true; }
+    setHuella(false);
     var tabs=document.querySelectorAll('.jx-tab');
     for(var i=0;i<tabs.length;i++){ tabs[i].classList.toggle('is-active', tabs[i].getAttribute('data-c')===c); }
     setPos(50); }
@@ -5009,6 +5152,8 @@ JS_JUXTAPOSE = """
   stage.addEventListener('touchstart',down,{passive:false}); window.addEventListener('touchmove',moveH,{passive:false}); window.addEventListener('touchend',up);
   var tabs=document.querySelectorAll('.jx-tab');
   for(var i=0;i<tabs.length;i++){ tabs[i].addEventListener('click',function(){ load(this.getAttribute('data-c')); }); }
+  if(huBtn) huBtn.addEventListener('click',function(e){ e.stopPropagation(); setHuella(!huOn); });
+  if(huBtn) huBtn.addEventListener('mousedown',function(e){ e.stopPropagation(); });
   function boot(){ var p=document.getElementById('tab-clima'); if(!p||p.hidden||inited) return; inited=true; load('flood'); }
   document.addEventListener('hidroalerta:tabshown',function(){ setTimeout(boot,80); });
   setTimeout(boot,400);
@@ -5732,6 +5877,8 @@ def main():
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,300;8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script src="https://cdn.plot.ly/plotly-locale-es-2.35.2.js" charset="utf-8"></script>
+<script>if(window.Plotly){{Plotly.setPlotConfig({{locale:'es'}});}}</script>
 {SM.CDN_HEAD}
 <style>{estilos()}</style>
 <style>{SM.CSS}</style>

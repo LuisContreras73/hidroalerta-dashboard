@@ -2,22 +2,28 @@
   "flood": {
     "antes": {
       "fecha": "2022-12-14",
-      "nubes": 6.41,
+      "nubes": 0.04,
       "sensor": "Sentinel-2"
     },
     "despues": {
-      "fecha": "2023-04-28",
-      "nubes": 0.96,
+      "fecha": "2023-03-19",
+      "nubes": 0.44,
       "sensor": "Sentinel-2"
     },
     "bounds": [
-      -77.32,
-      -11.62,
-      -77.12,
-      -11.46
+      -77.3,
+      -11.6,
+      -77.15,
+      -11.48
     ],
-    "w": 1000,
-    "h": 814
+    "w": 1400,
+    "h": 1139,
+    "huella": {
+      "file": "media/juxtapose/flood_huella.png",
+      "agua_ha": 0.1,
+      "arrasado_ha": 74.5,
+      "nota": "cambios dentro de un corredor de 500 m del cauce"
+    }
   },
   "agri": {
     "antes": {

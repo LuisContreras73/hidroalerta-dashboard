@@ -120,7 +120,7 @@ def _capitulos(meta) -> list:
              parrafos=[
                  f"A la salida de la cuenca, la estación <b>{est.get('nombre','Santo Domingo')}</b> "
                  f"mide el caudal que llega al valle. Sobre el nivel de <b>vigilancia "
-                 f"(Q90 = {umbral:.0f} m³/s)</b> arranca el seguimiento; los niveles "
+                 f"(P90 = {umbral:.0f} m³/s)</b> arranca el seguimiento; los niveles "
                  f"<b>Moderado · Fuerte · Extremo</b> (RM-049) escalan el aviso de crecida.",
                  "El modelo <b>RA-TFT</b> sostiene la habilidad de pronóstico con varios días de "
                  "ventaja: cada día ganado es tiempo para alertar, evacuar o manejar el "
@@ -176,8 +176,11 @@ def _card_extras(meta):
         "invisible": _sm_tags(["Humedad de suelo", "Nieve", "Vegetación", "ERA5-Land"]),
         "integracion": _sm_stats([("6", "capas de datos"), ("1", "misma cuenca")]),
         "yaku": _sm_yaku_bar(),
-        "alerta": _sm_stats([("0.95", "NSE · 1 día"), ("71 %", "detección de crecida"),
-                             ("14 d", "ventana de pronóstico")]),
+        # honestidad (auditoría): a 1 día iguala al mejor baseline; su ventaja real
+        # es sostener la habilidad a multi-día — el KPI lo dice así.
+        "alerta": _sm_stats([("71 %", "detección de crecida · 1 día"),
+                             ("7–14 d", "donde el modelo gana"),
+                             ("0.95", "NSE · 1 día (≈ baseline)")]),
     }
 
 
@@ -431,7 +434,7 @@ CSS = r"""
   background:rgba(8,20,28,.60);backdrop-filter:blur(14px) saturate(1.2);
   -webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(120,170,190,.24);
   box-shadow:0 18px 60px rgba(0,0,0,.5);
-  opacity:.14;transform:translateY(26px) scale(.99);transition:opacity .6s ease,transform .6s ease;}
+  opacity:.04;transform:translateY(26px) scale(.99);transition:opacity .6s ease,transform .6s ease;}
 .sm-step.is-active .sm-card{opacity:1;transform:none;}
 .sm-eyebrow{display:flex;align-items:center;gap:10px;font-family:var(--sans,sans-serif);
   font-size:11.5px;text-transform:uppercase;letter-spacing:.14em;color:var(--cyan,#1BA8C4);margin:0 0 12px;}
@@ -847,7 +850,8 @@ JS = r"""
       showlegend:false,font:{color:'#cfe2ea',size:9,family:'IBM Plex Sans'},
       xaxis:{showgrid:false,tickfont:{size:8},nticks:5,color:'#9fb8c2'},
       yaxis:{range:[0,ymax],gridcolor:'rgba(150,180,195,.16)',zeroline:false,tickfont:{size:8}},
-      yaxis2:{overlaying:'y',side:'right',autorange:'reversed',showgrid:false,tickfont:{size:8},color:'#9fb8c2'},
+      yaxis2:{overlaying:'y',side:'right',autorange:'reversed',showgrid:false,tickfont:{size:8},color:'#9fb8c2',
+        title:{text:'lluvia mm/día',font:{size:8.5,color:'#9fb8c2'}}},
       shapes:[dayMk].concat(lvl), annotations:ann};
     Plotly.newPlot('sm-hydro-plot',[trQ,trPr],lay,{displayModeBar:false,responsive:true,staticPlot:reduce});
     hydroInit=true;
