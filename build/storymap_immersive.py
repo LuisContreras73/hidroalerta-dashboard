@@ -266,6 +266,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
             <span class="sm-hydro-lvl mono" id="sm-hydro-lvl" hidden></span>
             <span class="sm-hydro-date mono" id="sm-hydro-date"></span>
           </div>
+          <div class="sm-mile" id="sm-mile" aria-live="polite"></div>
           <div id="sm-hydro-plot" class="sm-hydro-plot"></div>
         </div>
 
@@ -388,6 +389,10 @@ CSS = r"""
 .sm-hydro-lvl{font-size:9.5px;letter-spacing:.11em;padding:3px 9px;border:1px solid;
   border-radius:999px;transition:color .35s,border-color .35s;transform:translateY(-4px);}
 .sm-hydro-date{margin-left:auto;font-size:11px;color:#9fb8c2;}
+.sm-mile{font-family:var(--sans,sans-serif);font-size:11.5px;line-height:1.45;color:#cfe2ea;
+  border-left:2px solid #35C8E8;padding:2px 0 2px 9px;margin:6px 0 2px;min-height:16px;
+  transition:opacity .4s;}
+.sm-mile b{color:#7FD3E3;}
 .sm-hydro-plot{height:158px;margin:0 -6px;}
 .sm-plots{position:absolute;right:22px;top:calc(var(--nav-h,60px) + 30px);z-index:4;
   width:min(560px,92vw);max-height:calc(100vh - var(--nav-h,60px) - 130px);overflow:auto;
@@ -564,11 +569,20 @@ JS = r"""
     };
   }
 
+  // Textura del drape con DEBOUNCE: durante un scrub rápido el PNG del día solo se
+  // intercambia al pausar ~130 ms (cambiarla cada frame rompe la carga del TerrainLayer).
+  var texCur=null, texTimer=null;
+  function setDrapeTex(p){ if(texTimer) clearTimeout(texTimer);
+    texTimer=setTimeout(function(){ texTimer=null; texCur=p; relayers(); },130); }
   function currentTexture(){
-    if(tl.kind==='clima')  return 'media/clima/'+tl.sub+'_'+pad(tl.idx+1)+'.png';
-    if(tl.kind==='era5')   return 'media/era5/'+tl.sub+'_'+pad(tl.idx+1)+'.png';
-    if(tl.kind==='evento') return 'media/evento/pr_'+pad(tl.idx)+'.png';
-    return scene.tex==='relief'? TEX.relief : TEX.satellite;
+    var p=null;
+    if(tl.kind==='clima')       p='media/clima/'+tl.sub+'_'+pad(tl.idx+1)+'.png';
+    else if(tl.kind==='era5')   p='media/era5/'+tl.sub+'_'+pad(tl.idx+1)+'.png';
+    else if(tl.kind==='evento') p='media/evento/pr_'+pad(tl.idx)+'.png';
+    else { texCur=null; return scene.tex==='relief'? TEX.relief : TEX.satellite; }
+    if(texCur===null){ texCur=p; }
+    else if(p!==texCur){ setDrapeTex(p); }
+    return texCur;
   }
 
   function buildLayers(){
@@ -913,8 +927,22 @@ JS = r"""
     if(D.q90!=null && q>=D.q90) return {t:'Vigilancia',hex:'#D68910'};
     return {t:'Normal',hex:'#35C8E8'};
   }
+  // Hitos narrativos del evento (índice de día → texto); se muestran en el HUD.
+  var MILES=[
+    {i:0,  t:'<b>Verano normal</b>: el río oscila en torno a lo habitual.'},
+    {i:10, t:'<b>28 feb</b> · primer desborde en la cuenca alta (San José de Baños, INDECI).'},
+    {i:18, t:'<b>8 mar</b> · el Ciclón Yaku se organiza frente a la costa central.'},
+    {i:22, t:'<b>12 mar</b> · la lluvia se generaliza sobre la cuenca; el río empieza a subir.'},
+    {i:25, t:'<b>15 mar</b> · PICO: 113,4 m³/s — nivel Fuerte del protocolo RM-049.'},
+    {i:29, t:'<b>19 mar</b> · la escena satelital del comparador (pestaña Clima) se toma este día.'},
+    {i:36, t:'<b>Fin de marzo</b> · el río baja; la huella queda en el valle.'}
+  ];
   function updateHydro(i){
     if(!hydroInit) return; var ev=D.evento, x=ev.fechas[i];
+    var me=$('sm-mile');
+    if(me){ var m=null; for(var k=0;k<MILES.length;k++){ if(i>=MILES[k].i) m=MILES[k]; }
+      if(m && me.getAttribute('data-i')!==String(m.i)){ me.setAttribute('data-i',String(m.i));
+        me.style.opacity=0; (function(mm){ setTimeout(function(){ me.innerHTML=mm.t; me.style.opacity=1; },180); })(m); } }
     try{ Plotly.relayout('sm-hydro-plot',{'shapes[0].x0':x,'shapes[0].x1':x}); }catch(e){}
     var q=ev.q[i], nv=nivelDe(q);
     var qe=$('sm-hydro-q'), le=$('sm-hydro-lvl'), de=$('sm-hydro-date');
