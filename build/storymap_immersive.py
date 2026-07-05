@@ -927,9 +927,12 @@ JS = r"""
     if(q==null) return null;
     var lv=null;
     (D.niveles||[]).forEach(function(nv){ if(q>=nv.u) lv=nv; });
-    if(lv) return {t:lv.n,hex:lv.hex};
-    if(D.q90!=null && q>=D.q90) return {t:'Vigilancia',hex:'#D68910'};
-    return {t:'Normal',hex:'#35C8E8'};
+    // 'disp' = variante CLARA para texto sobre tinta (contraste ≥4.5:1, WCAG);
+    // Extremo va como chip granate relleno con texto blanco (auditoría de color).
+    if(lv){ var disp={Moderado:'#F5A05C',Fuerte:'#FF7088',Extremo:'#FF9C8A'}[lv.n]||lv.hex;
+      return {t:lv.n,hex:lv.hex,disp:disp,fill:(lv.n==='Extremo')?'#7B1E12':null}; }
+    if(D.q90!=null && q>=D.q90) return {t:'Vigilancia',hex:'#F2C744',disp:'#F2C744'};
+    return {t:'Normal',hex:'#35C8E8',disp:'#35C8E8'};
   }
   // Hitos narrativos del evento (índice de día → texto); se muestran en el HUD.
   var MILES=[
@@ -951,9 +954,11 @@ JS = r"""
     var q=ev.q[i], nv=nivelDe(q);
     var qe=$('sm-hydro-q'), le=$('sm-hydro-lvl'), de=$('sm-hydro-date');
     if(qe){ qe.innerHTML=(q==null?'—':q.toFixed(0)+'<span class="sm-hydro-un"> m³/s</span>');
-      if(nv){ qe.style.color=nv.hex; qe.style.textShadow='0 0 20px '+nv.hex+'55'; } }
+      if(nv){ qe.style.color=nv.disp||nv.hex; qe.style.textShadow='0 0 20px '+(nv.disp||nv.hex)+'55'; } }
     if(le){ if(nv&&q!=null){ le.hidden=false; le.textContent=nv.t.toUpperCase();
-      le.style.color=nv.hex; le.style.borderColor=nv.hex; } else { le.hidden=true; } }
+      if(nv.fill){ le.style.background=nv.fill; le.style.color='#fff'; le.style.borderColor=nv.fill; }
+      else { le.style.background='transparent'; le.style.color=nv.disp||nv.hex; le.style.borderColor=nv.disp||nv.hex; } }
+    else { le.hidden=true; } }
     if(de) de.textContent=x||'';
   }
 

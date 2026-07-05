@@ -51,11 +51,16 @@ FECHA_ACTUALIZACION = "2 de julio de 2026"
 # (47E214D2, máximos anuales 2020–2024, Gumbel). Estimación PRELIMINAR: solo 4 años de
 # registro observado → a refinar con la serie histórica de SENAMHI/ANA.
 # (nombre, color_protocolo, umbral m3/s, periodo_retorno_años, hex)
+# Semáforo v2 (auditoría académica): escalera de LUMINOSIDAD monótona J'≈67/50/31
+# (CAM02-UCS), validada bajo deuteranopia; con Vigilancia #F2C744 (J'85) forma la
+# escalera de 4 estados. Brewer 1994 · Harrower & Brewer 2003 · Machado 2009.
 NIVELES_ALERTA = [
-    ("Moderado", "Amarillo", 87.2,  2.33, "#E0A81E"),
-    ("Fuerte",   "Naranja",  104.1, 5,    "#E07B39"),
-    ("Extremo",  "Rojo",     117.8, 10,   "#C0392B"),
+    ("Moderado", "Amarillo", 87.2,  2.33, "#E07B39"),
+    ("Fuerte",   "Naranja",  104.1, 5,    "#C0392B"),
+    ("Extremo",  "Rojo",     117.8, 10,   "#7B1E12"),
 ]
+COL_VIGIL = "#F2C744"        # Vigilancia (P90) sobre fondos oscuros / rellenos
+COL_VIGIL_LN = "#9A7B0A"     # Vigilancia como línea/texto sobre fondos claros
 PROTOCOLO_URL = ("https://portal.indeci.gob.pe/wp-content/uploads/2020/03/"
                  "RM-N%C2%B0-049-2020-PCM-PROTOCOLO-LLUVIAS-INTENSAS.pdf")
 
@@ -88,7 +93,8 @@ COL_GAP = "rgba(10,61,84,0.05)"           # sombreado tramos sin aforo
 # 6 gráficos para una identidad visual coherente (editorial científica).
 FONT_SANS = "IBM Plex Sans, -apple-system, Segoe UI, sans-serif"
 FONT_MONO = "IBM Plex Mono, SFMono-Regular, Consolas, monospace"
-COLORWAY = [COL_ACCENT, COL_DEEP, COL_CYAN, "#8B6F47", "#8FA0AC", COL_OK]
+# Sin semánticos en el colorway (ley: un color de estado jamás es color de serie).
+COLORWAY = [COL_ACCENT, COL_DEEP, COL_CYAN, "#8B6F47", "#8FA0AC", "#6C8CA3"]
 
 
 def layout_base(**overrides):
@@ -379,10 +385,10 @@ def add_umbrales(fig, hasta=None):
     la MISMA semántica de color en todo el sitio — rojo reservado para Extremo).
     `hasta` limita los niveles dibujados (p.ej. 90 → solo vigilancia y Moderado)."""
     fig.add_hline(
-        y=UMBRAL_Q90, line=dict(color=COL_WARN, width=1.4, dash="dot"),
+        y=UMBRAL_Q90, line=dict(color=COL_VIGIL_LN, width=1.4, dash="dot"),
         annotation_text="Vigilancia (P90) 40,9",
         annotation_position="right",
-        annotation_font=dict(color=COL_WARN, size=10.5, family=FONT_MONO))
+        annotation_font=dict(color=COL_VIGIL_LN, size=10.5, family=FONT_MONO))
     for n, _c, u, _t, hx in NIVELES_ALERTA:
         if hasta is not None and u > hasta:
             continue
@@ -406,7 +412,7 @@ def estado_pill() -> str:
     fecha = f"{f.day:02d} {meses[f.month-1]} {f.year}"
     nivel, color = "Normal", COL_OK
     if q >= UMBRAL_Q90:
-        nivel, color = "Vigilancia", COL_WARN
+        nivel, color = "Vigilancia", COL_VIGIL_LN
     for n, _c, u, _t, hx in NIVELES_ALERTA:
         if q >= u:
             nivel, color = n, hx
@@ -1017,7 +1023,7 @@ def serie_pronostico_datos(fcast: pd.DataFrame, metr: pd.DataFrame):
         "col_gap": COL_GAP,
         "col_obs": COL_OBS,
         "col_crit": COL_CRIT,
-        "col_warn": COL_WARN,
+        "col_warn": COL_VIGIL_LN,
         "col_border": COL_BORDER,
         "col_surf": COL_SURF,
         "col_ink": COL_INK,
@@ -1225,11 +1231,11 @@ def construir_espagueti_lluvia() -> str:
         x, cy = curvas[y]
         fig.add_trace(go.Scatter(
             x=x, y=cy, mode="lines", name="Años Niño",
-            line=dict(color=COL_CRIT, width=2.4), showlegend=primero,
+            line=dict(color="#C25E1E", width=2.4), showlegend=primero,
             hovertemplate=f"{lab} · %{{y:.0f}} mm<extra></extra>"))
         anot.append(dict(x=float(x[-1]), y=float(cy[-1]), text=lab, showarrow=False,
                          xanchor="left", font=dict(size=11, family=FONT_SANS,
-                                                   color=COL_CRIT)))
+                                                   color="#C25E1E")))
         primero = False
     fig.update_layout(**layout_base(
         margin=dict(l=58, r=130, t=30, b=42), height=430,
@@ -1242,6 +1248,71 @@ def construir_espagueti_lluvia() -> str:
     return fig.to_html(include_plotlyjs=False, full_html=False,
                        div_id="grafico-espagueti",
                        config={"displayModeBar": False, "responsive": True})
+
+
+def construir_excedencia(fcast: pd.DataFrame):
+    """Matriz horizonte × nivel con la PROBABILIDAD DE EXCEDER cada umbral de acción
+    (formato EFAS: Pappenberger et al. 2013), en frecuencias naturales (Gigerenzer).
+    Distribución: lognormal de dos piezas ajustada a los cuantiles P10/P50/P90 que el
+    modelo ya emite (σ por cola; continua en la mediana). Emisión de EJEMPLO
+    retrospectivo: 7 días antes del pico del periodo de prueba (2024-02-02)."""
+    from math import log, erf, sqrt
+    r = fcast[fcast["model"] == "RA-TFT"].copy()
+    con_obs = r.dropna(subset=["obs"])
+    pico = con_obs.loc[con_obs["obs"].idxmax(), "date"]
+    emision = pico - pd.Timedelta(days=7)
+    leads = [1, 3, 7, 14]
+    niveles = [("Vigilancia", UMBRAL_Q90, COL_VIGIL_LN)] + \
+              [(n, u, hx) for n, _c, u, _t, hx in NIVELES_ALERTA]
+
+    def p_exc(p10, p50, p90, u):
+        s_lo = (log(p50) - log(p10)) / 1.2816
+        s_hi = (log(p90) - log(p50)) / 1.2816
+        s = s_lo if u < p50 else s_hi
+        z = (log(u) - log(p50)) / max(s, 1e-9)
+        return 1 - 0.5 * (1 + erf(z / sqrt(2)))
+
+    z, txt, hover, ylabs = [], [], [], []
+    for ld in leads:
+        row = r[(r["lead"] == ld) & (r["date"] == emision + pd.Timedelta(days=ld))]
+        if row.empty:
+            continue
+        p10, p50, p90 = [float(row.iloc[0][c]) for c in ("p10", "p50", "p90")]
+        ylabs.append(f"a {ld} día" + ("s" if ld > 1 else ""))
+        zi, ti, hi = [], [], []
+        for n, u, _hx in niveles:
+            p = p_exc(p10, p50, p90, u)
+            zi.append(p)
+            k = round(p * 10)
+            ti.append("≈ 0" if p < 0.02 else
+                      ("&lt;1 de cada 10" if k < 1 else f"<b>{k} de cada 10</b>"))
+            hi.append(f"{n} ({str(round(u, 1)).replace('.', ',')} m³/s) · "
+                      f"P(exceder) = {p*100:.0f} %")
+        z.append(zi); txt.append(ti); hover.append(hi)
+    xlabs = [f"{n}<br>{str(round(u, 1)).replace('.', ',')} m³/s" for n, u, _ in niveles]
+    fig = go.Figure(go.Heatmap(
+        z=z, x=xlabs, y=ylabs, text=txt, texttemplate="%{text}",
+        textfont=dict(size=12.5, family=FONT_SANS),
+        customdata=hover, hovertemplate="%{customdata}<extra></extra>",
+        colorscale=[[0, "#F4F8FA"], [1, COL_ACCENT]], zmin=0, zmax=1,
+        showscale=False, xgap=3, ygap=3))
+    fig.update_layout(**layout_base(
+        margin=dict(l=76, r=16, t=48, b=56), height=310,
+        xaxis=dict(side="top", tickfont=dict(size=12, family=FONT_SANS, color=COL_INK)),
+        yaxis=dict(autorange="reversed",
+                   tickfont=dict(size=12.5, family=FONT_MONO, color=COL_INK)),
+        showlegend=False, hovermode="closest"))
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0, y=-0.20, xanchor="left", showarrow=False,
+        text=("Escenarios «de cada 10» según la distribución del pronóstico "
+              "(lognormal de dos piezas sobre P10/P50/P90). Lo observado a 7 días "
+              "fue 56,7 m³/s: superó el umbral de vigilancia."),
+        font=dict(size=11, family=FONT_SANS, color=COL_MUTED))
+    div = fig.to_html(include_plotlyjs=False, full_html=False,
+                      div_id="grafico-excedencia",
+                      config={"displayModeBar": False, "responsive": True})
+    fecha = f"{emision.day} de enero de {emision.year}"
+    return div, fecha
 
 
 def construir_dotplot_horizonte(metr: pd.DataFrame) -> str:
@@ -2479,10 +2550,10 @@ def construir_evento_recorrido(serie: pd.DataFrame) -> str:
         name="Caudal observado (aforo)", hovertemplate="Observado %{y:.1f} m³/s"))
 
     fig.add_hline(
-        y=UMBRAL_Q90, line=dict(color=COL_WARN, width=1.4, dash="dot"),
+        y=UMBRAL_Q90, line=dict(color=COL_VIGIL, width=1.4, dash="dot"),
         annotation_text="Vigilancia (P90) 40,9 m³/s",
         annotation_position="top left",
-        annotation_font=dict(color="#e8b25c", size=11, family=FONT_MONO))
+        annotation_font=dict(color=COL_VIGIL, size=11, family=FONT_MONO))
 
     fig.update_layout(**layout_dark(
         margin=dict(l=54, r=16, t=54, b=34), height=430,
@@ -2891,7 +2962,7 @@ CSS_RESULTADOS = r"""
   background:#0B6E8C;border:1px solid #0B6E8C;padding:8px 16px;border-radius:999px;
   cursor:pointer;transition:.16s;white-space:nowrap;}
 .jx-play:hover{background:#0A5A73;}
-.jx-play.is-on{background:#C0392B;border-color:#C0392B;}
+.jx-play.is-on{background:#0A3D54;border-color:#0A3D54;}
 .jx-stops{display:flex;gap:6px;flex-wrap:wrap;}
 .jx-stop{font-family:IBM Plex Sans,system-ui;font-size:12px;color:#5B6B78;background:#fff;
   border:1px solid #D5DEE6;padding:7px 12px;border-radius:999px;cursor:pointer;transition:.16s;}
@@ -2953,7 +3024,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
               recorrido_div, resultados_html, protocolo_html, explorador_div="",
-              eventos_div="", dotplot_div="", espagueti_div="") -> str:
+              eventos_div="", dotplot_div="", espagueti_div="",
+              excedencia_html="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3270,6 +3342,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         (sin banda).</p>
       </header>
       <div class="reveal">{serie_div}</div>
+{excedencia_html}
 
       <section class="split split-flip reveal">
         <div class="split-main">{evento_div}</div>
@@ -4716,7 +4789,11 @@ JS_FORECAST = """
         (CFG.niveles||[]).map(function(nv){ return { type:'line', xref:'paper', yref:'y',
            x0:0, x1:1, y0:nv.u, y1:nv.u,
            line:{color:nv.hex, width:1.4, dash:'dot'}, layer:'above' }; })),
-      annotations:[{ xref:'paper', yref:'y', x:0.995, y:CFG.umbral, yanchor:'bottom',
+      annotations:[{ xref:'paper', yref:'paper', x:0.01, y:1.045, yanchor:'bottom',
+        xanchor:'left', showarrow:false,
+        text:'La banda se abre porque sabemos menos, no porque venga más agua',
+        font:{color:CFG.col_muted, size:11, family:FS} },
+      { xref:'paper', yref:'y', x:0.995, y:CFG.umbral, yanchor:'bottom',
         xanchor:'right', showarrow:false, text:'Vigilancia (P90) 40,9',
         font:{color:CFG.col_warn, size:11, family:FM} }].concat(
         (CFG.niveles||[]).map(function(nv){ return { xref:'paper', yref:'y',
@@ -4738,7 +4815,7 @@ JS_FORECAST = """
         traces.push({ x:fechas, y:s.p90, mode:'lines', line:{width:0},
           hoverinfo:'skip', showlegend:false, name:'P90', connectgaps:false });
         traces.push({ x:fechas, y:s.p10, mode:'lines', fill:'tonexty',
-          fillcolor:toRGBA(col,0.16), line:{width:0}, name:'Banda P10–P90',
+          fillcolor:toRGBA(col,0.16), line:{width:0}, name:'8 de cada 10 escenarios (banda P10–P90)',
           hovertemplate:'P10 %{y:.1f} · ', connectgaps:false });
       }
       if (s){
@@ -5238,7 +5315,7 @@ JS_EXPLORER = """
   var sel=document.getElementById('dex-sel'), plot=document.getElementById('dex-plot'),
       meta=document.getElementById('dex-meta'), dl=document.getElementById('dex-dl');
   if(!sel||!plot) return;
-  var COL={q:'#0B6E8C',nivel:'#1BA8C4',pr:'#2E6E9E',tmax:'#C0392B',tmin:'#D68910'};
+  var COL={q:'#0B6E8C',nivel:'#1BA8C4',pr:'#2E6E9E',tmax:'#8B6F47',tmin:'#6C8CA3'};
   // Agrupa por variable en <optgroup> (Caudal, Nivel, Precipitación, Temperatura…).
   var groups={}, order=[];
   idx.series.forEach(function(s,i){ if(!groups[s.variable_label]){groups[s.variable_label]=[];order.push(s.variable_label);} groups[s.variable_label].push({s:s,i:i}); });
@@ -6079,12 +6156,25 @@ def main():
     eventos_div = construir_eventos_impactos()
     dotplot_div = construir_dotplot_horizonte(metr)
     espagueti_div = construir_espagueti_lluvia()
+    exc_div, exc_fecha = construir_excedencia(fcast)
+    excedencia_html = f'''
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">Del cuantil a la decisión</p>
+        <h2 class="h-serif">¿Qué probabilidad hay de cruzar cada umbral?</h2>
+        <p class="prose prose-wide">La misma banda de pronóstico, traducida al formato
+        del decisor (práctica EFAS): probabilidad de <b>exceder cada nivel de acción</b>
+        por horizonte, en «escenarios de cada 10». Ejemplo retrospectivo con el
+        pronóstico emitido el <b>{exc_fecha}</b> — siete días antes del pico del
+        periodo de prueba: la señal de vigilancia crece con el horizonte, y el río
+        efectivamente cruzó el umbral.</p>
+      </header>
+      <div class="reveal">{exc_div}</div>'''
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
                        recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div,
-                       dotplot_div, espagueti_div)
+                       dotplot_div, espagueti_div, excedencia_html)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
