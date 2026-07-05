@@ -253,11 +253,14 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
           <div class="sm-legend" id="sm-legend" aria-hidden="true"></div>
         </div>
 
-        <!-- Hidrograma del evento Yaku (Plotly cliente), visible solo en el cap. 07. -->
+        <!-- Hidrograma del evento Yaku (Plotly cliente), visible solo en el cap. 08.
+             HUD inmersivo: valor grande coloreado por nivel RM-049 + chip de nivel + fecha. -->
         <div class="sm-hydro" id="sm-hydro" hidden>
-          <div class="sm-hydro-head">
-            <span class="sm-hydro-t">Caudal observado · Santo Domingo (47E214D2)</span>
+          <span class="sm-hydro-t">Caudal observado · Santo Domingo (47E214D2)</span>
+          <div class="sm-hydro-val">
             <span class="sm-hydro-q mono" id="sm-hydro-q">—</span>
+            <span class="sm-hydro-lvl mono" id="sm-hydro-lvl" hidden></span>
+            <span class="sm-hydro-date mono" id="sm-hydro-date"></span>
           </div>
           <div id="sm-hydro-plot" class="sm-hydro-plot"></div>
         </div>
@@ -363,22 +366,36 @@ CSS = r"""
 .sm-legend-bar{height:8px;border-radius:4px;}
 .sm-legend-scale{display:flex;justify-content:space-between;font-size:10px;color:#b9cdd6;margin-top:3px;}
 .sm-legend-unit{position:absolute;right:0;top:-14px;font-size:10px;color:#b9cdd6;}
-.sm-hydro{position:absolute;right:22px;bottom:96px;z-index:4;width:min(430px,90vw);
-  padding:11px 13px 6px;border-radius:14px;background:rgba(9,22,31,.74);
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-  border:1px solid rgba(120,170,190,.28);box-shadow:0 12px 40px rgba(0,0,0,.42);}
-.sm-hydro-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px;}
-.sm-hydro-t{font-size:11.5px;color:#cfe2ea;}
-.sm-hydro-q{font-size:16px;font-weight:600;color:var(--cyan,#1BA8C4);}
-.sm-hydro-plot{height:150px;}
+/* HUD inmersivo (sin caja dura): vidrio con degradado, sin borde, hairline superior. */
+.sm-hydro{position:absolute;right:22px;bottom:96px;z-index:4;width:min(470px,92vw);
+  padding:14px 16px 4px;border-radius:20px;
+  background:linear-gradient(155deg,rgba(7,19,27,.86),rgba(7,19,27,.5));
+  backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15);
+  box-shadow:0 18px 54px rgba(0,0,0,.46),inset 0 1px 0 rgba(180,220,235,.14);}
+.sm-hydro-t{display:block;font-family:var(--sans,sans-serif);font-size:10px;
+  letter-spacing:.13em;text-transform:uppercase;color:#9fb8c2;margin-bottom:3px;}
+.sm-hydro-val{display:flex;align-items:baseline;gap:10px;}
+.sm-hydro-q{font-size:31px;font-weight:700;color:#35C8E8;line-height:1.05;
+  transition:color .35s,text-shadow .35s;}
+.sm-hydro-un{font-size:13px;font-weight:500;color:#9fb8c2;}
+.sm-hydro-lvl{font-size:9.5px;letter-spacing:.11em;padding:3px 9px;border:1px solid;
+  border-radius:999px;transition:color .35s,border-color .35s;transform:translateY(-4px);}
+.sm-hydro-date{margin-left:auto;font-size:11px;color:#9fb8c2;}
+.sm-hydro-plot{height:158px;margin:0 -6px;}
 .sm-plots{position:absolute;right:22px;top:calc(var(--nav-h,60px) + 30px);z-index:4;
   width:min(560px,92vw);max-height:calc(100vh - var(--nav-h,60px) - 130px);overflow:auto;
   display:flex;flex-direction:column;gap:14px;}
-.sm-plot-card{padding:13px 15px;border-radius:14px;background:rgba(9,22,31,.74);
-  backdrop-filter:blur(10px) saturate(1.1);-webkit-backdrop-filter:blur(10px) saturate(1.1);
-  border:1px solid rgba(120,170,190,.28);box-shadow:0 14px 44px rgba(0,0,0,.5);}
-.sm-plot-cap{font-family:var(--sans,sans-serif);font-size:12.5px;color:#cfe2ea;
-  margin:0 0 8px;font-weight:600;}
+.sm-plot-card{padding:14px 16px 8px;border-radius:20px;
+  background:linear-gradient(155deg,rgba(7,19,27,.86),rgba(7,19,27,.5));
+  backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15);
+  box-shadow:0 18px 54px rgba(0,0,0,.5),inset 0 1px 0 rgba(180,220,235,.14);}
+.sm-plot-cap{font-family:var(--sans,sans-serif);font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:#9fb8c2;margin:0 0 8px;font-weight:600;}
+/* Anula la tarjeta blanca genérica de .js-plotly-plot (estilos del dashboard):
+   dentro del recorrido los gráficos van a ras sobre el vidrio oscuro del HUD. */
+.sm-hydro-plot.js-plotly-plot,.sm-hydro-plot .js-plotly-plot,
+.sm-plot-card .js-plotly-plot{background:transparent!important;border:0!important;
+  border-radius:0!important;box-shadow:none!important;padding:0!important;}
 .sm-stack-btn{position:absolute;left:50%;bottom:30px;transform:translateX(-50%);z-index:4;
   display:inline-flex;align-items:center;gap:8px;cursor:pointer;
   font-family:var(--sans,sans-serif);font-size:13px;color:#eaf2f6;padding:9px 18px;
@@ -817,22 +834,43 @@ JS = r"""
       ann.push({xref:'paper',x:0.99,y:nv.u,xanchor:'right',yanchor:'bottom',text:nv.n,showarrow:false,font:{size:8,color:nv.hex}});
     });
     if(D.q90!=null) lvl.push({type:'line',xref:'paper',x0:0,x1:1,y0:D.q90,y1:D.q90,line:{color:'#8aa0ac',width:1,dash:'dot'}});
+    // marca del pico del evento (comunica el máximo aunque el usuario no llegue a él)
+    if(ev.picoIdx!=null && q[ev.picoIdx]!=null){
+      ann.push({x:x[ev.picoIdx],y:q[ev.picoIdx],text:'pico '+Math.round(q[ev.picoIdx]),
+        showarrow:true,arrowhead:0,arrowcolor:'rgba(230,244,248,.6)',ax:0,ay:-16,
+        font:{size:9,color:'#e8f4f8'}});
+    }
     var qv=q.filter(function(v){return v!=null;});
     var ymax=Math.max(128,(qv.length?Math.max.apply(null,qv):100)*1.12);
     var dayMk={type:'line',x0:x[0],x1:x[0],y0:0,y1:1,yref:'paper',line:{color:'#ffffff',width:1.8,dash:'dot'}};
-    var lay={margin:{l:36,r:40,t:6,b:20},height:150,paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+    var lay={margin:{l:30,r:40,t:10,b:20},height:158,paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
       showlegend:false,font:{color:'#cfe2ea',size:9,family:'IBM Plex Sans'},
       xaxis:{showgrid:false,tickfont:{size:8},nticks:5,color:'#9fb8c2'},
-      yaxis:{title:{text:'m³/s',font:{size:9}},range:[0,ymax],gridcolor:'rgba(150,180,195,.18)',zeroline:false},
+      yaxis:{range:[0,ymax],gridcolor:'rgba(150,180,195,.16)',zeroline:false,tickfont:{size:8}},
       yaxis2:{overlaying:'y',side:'right',autorange:'reversed',showgrid:false,tickfont:{size:8},color:'#9fb8c2'},
       shapes:[dayMk].concat(lvl), annotations:ann};
     Plotly.newPlot('sm-hydro-plot',[trQ,trPr],lay,{displayModeBar:false,responsive:true,staticPlot:reduce});
     hydroInit=true;
   }
+  // nivel RM-049 del caudal (para colorear el valor y el chip del HUD)
+  function nivelDe(q){
+    if(q==null) return null;
+    var lv=null;
+    (D.niveles||[]).forEach(function(nv){ if(q>=nv.u) lv=nv; });
+    if(lv) return {t:lv.n,hex:lv.hex};
+    if(D.q90!=null && q>=D.q90) return {t:'Vigilancia',hex:'#D68910'};
+    return {t:'Normal',hex:'#35C8E8'};
+  }
   function updateHydro(i){
     if(!hydroInit) return; var ev=D.evento, x=ev.fechas[i];
     try{ Plotly.relayout('sm-hydro-plot',{'shapes[0].x0':x,'shapes[0].x1':x}); }catch(e){}
-    var q=ev.q[i]; $('sm-hydro-q').textContent=(q==null?'—':q.toFixed(0)+' m³/s');
+    var q=ev.q[i], nv=nivelDe(q);
+    var qe=$('sm-hydro-q'), le=$('sm-hydro-lvl'), de=$('sm-hydro-date');
+    if(qe){ qe.innerHTML=(q==null?'—':q.toFixed(0)+'<span class="sm-hydro-un"> m³/s</span>');
+      if(nv){ qe.style.color=nv.hex; qe.style.textShadow='0 0 20px '+nv.hex+'55'; } }
+    if(le){ if(nv&&q!=null){ le.hidden=false; le.textContent=nv.t.toUpperCase();
+      le.style.color=nv.hex; le.style.borderColor=nv.hex; } else { le.hidden=true; } }
+    if(de) de.textContent=x||'';
   }
 
   // ── Panel de evidencia (cap. 08) ──────────────────────────────────────────

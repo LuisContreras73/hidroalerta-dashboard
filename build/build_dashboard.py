@@ -1702,13 +1702,13 @@ def construir_explorador_diario() -> str:
     n = len(idx.get("series", []))
     idx_json = json.dumps(idx, ensure_ascii=False)
     return f"""
-      <header class="tab-head tab-head-sep reveal">
+      <header class="tab-head reveal">
         <p class="eyebrow">Datos abiertos · series diarias</p>
-        <h2 class="h-serif">Explora los registros diarios de las estaciones</h2>
-        <p class="prose prose-wide">{n} series diarias con control de calidad —
-        <b>caudal</b> y <b>nivel</b> (SNIRH&ndash;ANA), <b>precipitación</b> y
-        <b>temperatura</b> (SENAMHI). Elige una serie para verla completa y descarga
-        el CSV para reutilizarla.</p>
+        <h2 class="h-serif">La materia prima: los registros diarios</h2>
+        <p class="prose prose-wide">Todo el sistema parte de aquí: {n} series diarias
+        con control de calidad — <b>caudal</b> y <b>nivel</b> (SNIRH&ndash;ANA),
+        <b>precipitación</b> y <b>temperatura</b> (SENAMHI). Explora cada serie
+        completa y descarga el CSV para reutilizarla o auditarla.</p>
       </header>
       <div class="reveal dex">
         <div class="dex-bar">
@@ -3157,9 +3157,11 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
   <section role="tabpanel" id="tab-datos" aria-labelledby="tab-btn-datos"
            class="tabpanel" tabindex="0" hidden>
     <div class="tab-body">
-      <header class="tab-head reveal">
+{explorador_div}
+
+      <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Análisis exploratorio</p>
-        <h2 class="h-serif">Memoria y tiempo de respuesta</h2>
+        <h2 class="h-serif">Qué dicen esos datos: memoria y tiempo de respuesta</h2>
         <p class="prose prose-wide">Dos correlogramas que sustentan el diseño del
         modelo. La <b>autocorrelación (ACF)</b> del caudal mide su memoria propia; la
         <b>correlación cruzada (CCF)</b> lluvia→caudal mide cuánto tarda la
@@ -3182,7 +3184,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         (Isomap) la separan mejor.</p>
       </header>
       <div class="reveal">{embed_div}</div>
-{explorador_div}
     </div>
   </section>
 
