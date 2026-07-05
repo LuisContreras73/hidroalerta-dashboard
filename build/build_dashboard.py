@@ -1181,6 +1181,130 @@ MEJOR_MAYOR = {"NSE": True, "KGE": True, "MAE": False, "CRPS": False,
                "CSI": True, "POD": True, "FAR": False}
 
 
+def construir_espagueti_lluvia() -> str:
+    """58 años de lluvia en una imagen: acumulada por año hidrológico (sep–ago) en
+    Pirca (SNIRH, serie más larga de la cuenca). Los años gris-tenue son el contexto;
+    SOLO los años Niño llevan color (una cosa = un color) con etiqueta directa; la
+    mediana ancla el ojo. Patrón espagueti + resaltado (USGS / vista Curvas)."""
+    src = DOCS / "data" / "daily" / "pirca__pr.csv"
+    d = pd.read_csv(src, parse_dates=["date"]).set_index("date")["value"]
+    # año hidrológico peruano: sep (año-1) → ago (año); etiqueta = año de cierre
+    wy = d.index.year + (d.index.month >= 9).astype(int)
+    doy = ((d.index.dayofyear - 244) % 365) + 1          # 1 sep → día 1
+    df = pd.DataFrame({"wy": wy, "doy": doy, "pr": d.values})
+    ninos = {1983: "El Niño 82–83", 1998: "El Niño 97–98",
+             2017: "Niño costero 2017", 2023: "Yaku 2023"}
+    fig = go.Figure()
+    curvas, anot = {}, []
+    for y, g in df.groupby("wy"):
+        if len(g) < 300:                                  # solo años ~completos
+            continue
+        g = g.sort_values("doy")
+        s = pd.Series(g["pr"].cumsum().values, index=g["doy"].values)
+        s = s[~s.index.duplicated(keep="last")]           # bisiestos duplican un doy
+        curvas[y] = (s.index.values, s.values)
+    # contexto: todos los años en gris tenue (scattergl: ~50 trazas ligeras)
+    for y, (x, cy) in curvas.items():
+        if y in ninos:
+            continue
+        fig.add_trace(go.Scattergl(
+            x=x, y=cy, mode="lines", line=dict(color="rgba(120,140,155,0.22)", width=1),
+            hovertemplate=f"{y-1}–{y} · %{{y:.0f}} mm<extra></extra>", showlegend=False))
+    # mediana climatológica (ancla)
+    todas = pd.DataFrame({y: pd.Series(cy, index=x) for y, (x, cy) in curvas.items()})
+    med = todas.median(axis=1).dropna()
+    fig.add_trace(go.Scatter(
+        x=med.index, y=med.values, mode="lines", name="Mediana (58 años)",
+        line=dict(color=COL_INK, width=2.2, dash="dash"),
+        hovertemplate="mediana · %{y:.0f} mm<extra></extra>"))
+    # años Niño: un solo color (codifican lo mismo) + etiqueta directa al final
+    primero = True
+    for y, lab in ninos.items():
+        if y not in curvas:
+            continue
+        x, cy = curvas[y]
+        fig.add_trace(go.Scatter(
+            x=x, y=cy, mode="lines", name="Años Niño",
+            line=dict(color=COL_CRIT, width=2.4), showlegend=primero,
+            hovertemplate=f"{lab} · %{{y:.0f}} mm<extra></extra>"))
+        anot.append(dict(x=float(x[-1]), y=float(cy[-1]), text=lab, showarrow=False,
+                         xanchor="left", font=dict(size=11, family=FONT_SANS,
+                                                   color=COL_CRIT)))
+        primero = False
+    fig.update_layout(**layout_base(
+        margin=dict(l=58, r=130, t=30, b=42), height=430,
+        xaxis=axis_x(title="día del año hidrológico (1 = 1 de septiembre)"),
+        yaxis=axis_y(title="Lluvia acumulada (mm)", rangemode="tozero"),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                    font=dict(size=12, family=FONT_SANS, color=COL_MUTED)),
+        annotations=anot, hovermode="closest"))
+    return fig.to_html(include_plotlyjs=False, full_html=False,
+                       div_id="grafico-espagueti",
+                       config={"displayModeBar": False, "responsive": True})
+
+
+def construir_dotplot_horizonte(metr: pd.DataFrame) -> str:
+    """Dotplot de Cleveland (patrón «curvas» de Guerra): una fila por horizonte, un
+    punto por modelo en x=NSE, conector gris por fila y Δ del modelo propuesto vs el
+    mejor baseline anotado a la derecha. Presupuesto de color: solo RA-TFT lleva
+    color; los baselines van en grises con símbolo propio (legibles sin color)."""
+    leads = [1, 2, 3, 5, 7, 14]
+    labs = [f"{ld} día" if ld == 1 else f"{ld} días" for ld in leads]
+    piv = metr.pivot_table(index="lead", columns="model", values="NSE")
+    fig = go.Figure()
+    # conectores por fila (rango min–max entre modelos)
+    for ld, lab in zip(leads, labs):
+        fila = piv.loc[ld].dropna()
+        fig.add_trace(go.Scatter(
+            x=[fila.min(), fila.max()], y=[lab, lab], mode="lines",
+            line=dict(color=COL_BORDER, width=2.5), hoverinfo="skip", showlegend=False))
+    # baselines en grises (símbolo distinto cada uno: legible sin color)
+    estilos_mod = [("Persistencia", "#5B6B78", "circle-open"),
+                   ("LightGBM", "#98A6B1", "diamond"),
+                   ("HydroST", "#98A6B1", "square"),
+                   ("RA-TFT", COL_ACCENT, "circle")]
+    for mod, color, sym in estilos_mod:
+        if mod not in piv.columns:
+            continue
+        es_prop = (mod == "RA-TFT")
+        fig.add_trace(go.Scatter(
+            x=[piv.loc[ld, mod] for ld in leads], y=labs,
+            mode="markers", name=mod,
+            marker=dict(color=color, symbol=sym, size=13 if es_prop else 10,
+                        line=dict(color="#FFFFFF" if es_prop else color,
+                                  width=1.5 if es_prop else 1)),
+            hovertemplate=mod + " · NSE %{x:.3f}<extra></extra>"))
+    # Δ vs mejor baseline, anotado por fila (el argumento en el propio gráfico)
+    for ld, lab in zip(leads, labs):
+        base = piv.loc[ld].drop("RA-TFT", errors="ignore").max()
+        prop = piv.loc[ld].get("RA-TFT")
+        if pd.isna(prop) or pd.isna(base):
+            continue
+        d = prop - base
+        fig.add_annotation(
+            xref="paper", x=1.005, y=lab, xanchor="left", showarrow=False,
+            text=f"{'+' if d >= 0 else '−'}{abs(d):.3f}".replace(".", ","),
+            font=dict(size=11, family=FONT_MONO,
+                      color=COL_OK if d > 0 else COL_MUTED))
+    fig.add_annotation(
+        xref="paper", yref="paper", x=0.02, y=0.30, xanchor="left", showarrow=False,
+        text="a ≥3 días, el modelo propuesto<br>sostiene mejor la habilidad",
+        font=dict(size=12.5, family=FONT_SANS, color=COL_DEEP), align="left")
+    fig.update_layout(**layout_base(
+        margin=dict(l=64, r=64, t=44, b=40), height=330,
+        xaxis=axis_x(title="NSE (1 = ajuste perfecto)", range=[0.30, 1.02]),
+        yaxis=dict(categoryorder="array", categoryarray=labs[::-1],
+                   gridcolor="rgba(0,0,0,0)", tickfont=dict(
+                       size=12.5, family=FONT_MONO, color=COL_INK)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                    font=dict(size=12, family=FONT_SANS, color=COL_MUTED)),
+        hovermode="y unified"))
+    return fig.to_html(include_plotlyjs=False, full_html=False,
+                       div_id="grafico-dotplot",
+                       config={"displayModeBar": False, "responsive": True})
+
+
 def tabla_metricas_html(metr: pd.DataFrame) -> str:
     cols = ["NSE", "KGE", "MAE", "CRPS", "CSI", "POD", "FAR"]
     filas = []
@@ -2829,7 +2953,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
               recorrido_div, resultados_html, protocolo_html, explorador_div="",
-              eventos_div="") -> str:
+              eventos_div="", dotplot_div="", espagueti_div="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3171,11 +3295,20 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     <div class="tab-body">
       <header class="tab-head reveal">
         <p class="eyebrow">Evaluación comparativa</p>
+        <h2 class="h-serif">A más días de anticipación, más ventaja del modelo</h2>
+        <p class="prose prose-wide">Un punto por modelo y horizonte (NSE; derecha =
+        mejor). A 1 día todos rozan el techo de la persistencia; desde <b>3–5 días</b>
+        el modelo propuesto (en color) se despega y a <b>7–14 días</b> es el único que
+        sostiene la habilidad. La cifra verde es su ventaja sobre el mejor baseline.</p>
+      </header>
+      <div class="reveal">{dotplot_div}</div>
+
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">La misma carrera, animada</p>
         <h2 class="h-serif">Habilidad predictiva según el horizonte</h2>
-        <p class="prose prose-wide">Eficiencia (NSE) de cada modelo al aumentar el
-        horizonte. Mueva el deslizador o pulse reproducir: la Persistencia (naive)
-        parte alta a 1 día pero decae con rapidez, mientras que el modelo propuesto
-        sostiene mejor la habilidad a varios días.</p>
+        <p class="prose prose-wide">Mueva el deslizador o pulse reproducir: la
+        Persistencia (naive) parte alta a 1 día pero decae con rapidez, mientras que
+        el modelo propuesto sostiene mejor la habilidad a varios días.</p>
       </header>
       <div class="reveal">{anim_div}</div>
       <p class="nota reveal">Barras de NSE por modelo; la línea base en cero indica
@@ -3256,6 +3389,20 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       La cuenca responde sobre todo a la <b>lluvia andina estacional</b>; el Niño costero
       <b>modula, no determina</b> el caudal. Por eso el pronóstico se apoya en los
       forzantes meteorológicos —no en el índice ENSO por sí solo.</p>
+
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">Variabilidad · 58 años en una imagen</p>
+        <h2 class="h-serif">Los años Niño se separan del resto</h2>
+        <p class="prose prose-wide">Cada línea gris es un <b>año hidrológico</b>
+        (septiembre–agosto) de lluvia acumulada en <b>Pirca</b>, la serie más larga
+        de la cuenca (SNIRH, 1967–2025). En color, los años de El Niño: casi todos
+        terminan por encima de la mediana — la variabilidad interanual que un sistema
+        de alerta debe absorber.</p>
+      </header>
+      <div class="reveal">{espagueti_div}</div>
+      <p class="nota reveal">Estación de cabecera (~3 255 m s. n. m.); el acumulado
+      del valle difiere en magnitud pero comparte el patrón. Años con ≥300 días de
+      registro.</p>
 {eventos_div}
 
       <header class="tab-head tab-head-sep reveal">
@@ -5930,11 +6077,14 @@ def main():
     protocolo_html = bloque_protocolo()
     explorador_div = construir_explorador_diario()
     eventos_div = construir_eventos_impactos()
+    dotplot_div = construir_dotplot_horizonte(metr)
+    espagueti_div = construir_espagueti_lluvia()
     print("Ensamblando index.html...")
     cuerpo = ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
                        mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
-                       recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div)
+                       recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div,
+                       dotplot_div, espagueti_div)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
