@@ -297,6 +297,13 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
           <span id="sm-stack-lab">Integrar capas</span>
         </button>
 
+        <!-- Volar el río: la cámara desciende el cauce de cabecera a valle. -->
+        <button type="button" class="sm-fly-btn" id="sm-fly-btn" hidden
+                aria-pressed="false" aria-label="Volar a lo largo del río">
+          <span class="sm-fly-ico" aria-hidden="true">&#10148;</span>
+          <span id="sm-fly-lab">Volar el río</span>
+        </button>
+
         <!-- Girar la cuenca (órbita a demanda). Visible cuando hay terreno 3D. -->
         <button type="button" class="sm-spin-btn" id="sm-spin-btn" hidden
                 aria-pressed="false" aria-label="Girar o detener la vista de la cuenca">
@@ -491,6 +498,15 @@ CSS = r"""
   box-shadow:0 10px 34px rgba(0,0,0,.4);transition:.18s;}
 .sm-stack-btn:hover{background:rgba(16,38,50,.85);}
 .sm-stack-ico{font-size:15px;color:var(--cyan,#1BA8C4);}
+.sm-fly-btn{position:absolute;right:118px;bottom:24px;z-index:5;
+  display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  font-family:var(--sans,sans-serif);font-size:12.5px;color:#eaf2f6;padding:8px 15px;
+  border-radius:999px;background:rgba(9,22,31,.72);backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);border:1px solid rgba(120,170,190,.30);
+  box-shadow:0 8px 26px rgba(0,0,0,.38);transition:.18s;}
+.sm-fly-btn:hover{background:rgba(16,38,50,.85);border-color:rgba(27,168,196,.55);}
+.sm-fly-btn.is-on{background:rgba(11,110,140,.55);border-color:rgba(27,168,196,.7);}
+.sm-fly-ico{color:var(--cyan,#1BA8C4);font-size:14px;}
 .sm-spin-btn{position:absolute;right:20px;bottom:24px;z-index:5;
   display:inline-flex;align-items:center;gap:7px;cursor:pointer;
   font-family:var(--sans,sans-serif);font-size:12.5px;color:#eaf2f6;padding:8px 15px;
@@ -909,6 +925,70 @@ JS = r"""
         tripsLast=now; relayers(); }
       tripsRAF=requestAnimationFrame(tick); })(performance.now()); }
   function stopTrips(){ tripsOn=false; if(tripsRAF) cancelAnimationFrame(tripsRAF); tripsRAF=null; }
+  // ── Fly-along del cauce: la cámara desciende el río (guía de motion design:
+  // pitch constante, bearing tangente desenrollado y suavizado, look-ahead). ──
+  var FLY=null, flyRAF=null, flyOn=false, flyS=0, flyLast=0;
+  function buildFly(){
+    if(FLY||!D.rios) return;
+    var main=null;
+    D.rios.features.forEach(function(f){ if(f.properties&&f.properties.main) main=f; });
+    if(!main) return;
+    var cs=main.geometry.coordinates;
+    // orienta cabecera→salida (la salida es el extremo más bajo)
+    if((cs[0][2]||0) < (cs[cs.length-1][2]||0)) cs=cs.slice().reverse();
+    // suaviza la línea (media móvil) para un vuelo sin tirones
+    function smooth(arr,w){ var out=[],n=arr.length;
+      for(var i=0;i<n;i++){ var a=Math.max(0,i-w),b=Math.min(n-1,i+w),sx=0,sy=0,sz=0,c=0;
+        for(var j=a;j<=b;j++){ sx+=arr[j][0]; sy+=arr[j][1]; sz+=(arr[j][2]||0); c++; }
+        out.push([sx/c,sy/c,sz/c]); } return out; }
+    var sm=smooth(cs,10);
+    // rumbo tangente, desenrollado (sin saltos ±180) y suavizado
+    var brgs=[], prev=null;
+    for(var i=0;i<sm.length;i++){
+      var j=Math.min(sm.length-1,i+3), k=Math.max(0,i-3);
+      var dLon=(sm[j][0]-sm[k][0])*Math.cos(sm[i][1]*0.01745), dLat=sm[j][1]-sm[k][1];
+      var brg=Math.atan2(dLon,dLat)*57.2958;
+      if(prev!==null){ while(brg-prev>180)brg-=360; while(prev-brg>180)brg+=360; }
+      brgs.push(brg); prev=brg;
+    }
+    var bs=[], w=8;
+    for(var i2=0;i2<brgs.length;i2++){ var a4=Math.max(0,i2-w),b4=Math.min(brgs.length-1,i2+w),t=0,c2=0;
+      for(var j2=a4;j2<=b4;j2++){ t+=brgs[j2]; c2++; } bs.push(t/c2); }
+    FLY={pts:sm, brg:bs, n:sm.length};
+  }
+  function stopFly(back){
+    flyOn=false; if(flyRAF) cancelAnimationFrame(flyRAF); flyRAF=null;
+    var fb=$('sm-fly-btn'); if(fb){ fb.classList.remove('is-on');
+      fb.setAttribute('aria-pressed','false');
+      if($('sm-fly-lab')) $('sm-fly-lab').textContent='Volar el río'; }
+    if(back && SCENES[curCap]){ var sc=SCENES[curCap], v=views()[sc.view]||views().basin;
+      tweenTo({longitude:v.longitude,latitude:v.latitude,zoom:v.zoom,pitch:sc.pitch||0,bearing:sc.bearing||0},1600); }
+  }
+  function startFly(){
+    if(reduce) return; buildFly(); if(!FLY) return;
+    stopOrbit(); spin=false; updateSpinBtn();
+    flyOn=true; flyS=0; flyLast=performance.now();
+    var fb=$('sm-fly-btn'); if(fb){ fb.classList.add('is-on');
+      fb.setAttribute('aria-pressed','true');
+      if($('sm-fly-lab')) $('sm-fly-lab').textContent='Detener vuelo'; }
+    var DUR=46;                                          // s de cabecera a valle
+    (function tick(now){
+      if(!flyOn){ flyRAF=null; return; }
+      flyS+=(now-flyLast)/1000/DUR; flyLast=now;
+      if(flyS>=1){ stopFly(true); return; }
+      var e=flyS<0.04? flyS/0.04 : (flyS>0.96? (1-flyS)/0.04 : 1);   // arranque/frenada suaves
+      var fi=flyS*(FLY.n-1), i=Math.floor(fi), fr=fi-i;
+      var la=Math.min(FLY.n-1,i+7);                       // look-ahead: mira río abajo
+      var P=FLY.pts[i], Q=FLY.pts[Math.min(FLY.n-1,i+1)], L=FLY.pts[la];
+      var lon=P[0]+(Q[0]-P[0])*fr, lat=P[1]+(Q[1]-P[1])*fr;
+      view.longitude=lon+(L[0]-lon)*0.35; view.latitude=lat+(L[1]-lat)*0.35;
+      view.bearing=FLY.brg[i]+(FLY.brg[Math.min(FLY.n-1,i+1)]-FLY.brg[i])*fr;
+      view.pitch=54; view.zoom=10.55+0.25*e*Math.sin(flyS*3.14159);
+      apply();
+      flyRAF=requestAnimationFrame(tick);
+    })(performance.now());
+  }
+  function toggleFly(){ flyOn? stopFly(true) : startFly(); }
   // Botón "Girar cuenca": órbita a demanda en cualquier capítulo (además del auto-orbit de escena).
   function updateSpinBtn(){ var b=$('sm-spin-btn'); if(!b) return;
     var lab=$('sm-spin-lab'); b.setAttribute('aria-pressed', orbit?'true':'false');
@@ -1128,7 +1208,7 @@ JS = r"""
   // ── Activar capítulo ──────────────────────────────────────────────────────
   function setScene(id){
     if(id===curCap) return; curCap=id;
-    writeHash(id); updateDots(id);
+    writeHash(id); updateDots(id); if(flyOn) stopFly(false);
     var s=SCENES[id]||SCENES.cuenca; scene=s;
     // HUD
     var stepEl=document.querySelector('.sm-step[data-cap="'+id+'"]');
@@ -1140,6 +1220,7 @@ JS = r"""
     // globo vs deck
     showGlobe(!!s.globe);
     var spb=$('sm-spin-btn'); if(spb) spb.hidden=!!s.globe;
+    var flb=$('sm-fly-btn'); if(flb) flb.hidden=!(s.rivers && !reduce);
     var bs=$('sm-bigstats'); if(bs) bs.hidden=!s.bigstats;
     if(s.globe){ hideControl(); $('sm-hydro').hidden=true; showPlots(false); orbit=false; stopOrbit(); updateSpinBtn(); if(hud) hud.classList.remove('is-on'); return; }
     // exploded layer stack (capas de datos que se separan y se integran)
@@ -1311,7 +1392,7 @@ JS = r"""
         viewState:view, controller:{dragRotate:true,touchRotate:true,dragPan:true,doubleClickZoom:false,scrollZoom:false,touchZoom:false,inertia:220},
         effects:[lighting], layers:buildLayers(),
         parameters:{clearColor:[0.024,0.07,0.10,0]},
-        onViewStateChange:function(e){ view=e.viewState; if(tweenRAF){cancelAnimationFrame(tweenRAF);tweenRAF=null;} spin=false; stopOrbit(); updateSpinBtn(); apply(); },
+        onViewStateChange:function(e){ view=e.viewState; if(tweenRAF){cancelAnimationFrame(tweenRAF);tweenRAF=null;} spin=false; stopOrbit(); if(flyOn) stopFly(false); updateSpinBtn(); apply(); },
         getTooltip:function(o){ if(o&&o.object&&o.object.properties&&o.object.properties.desc)
           return {text:o.object.properties.nombre+'\n'+o.object.properties.desc}; return null; }
       });
@@ -1322,6 +1403,7 @@ JS = r"""
     if(sb) sb.onclick=function(){ var t=spread>0.5?0:1; tweenSpread(t);
       if($('sm-stack-lab')) $('sm-stack-lab').textContent=(t>0.5?'Integrar capas':'Separar capas'); };
     var spb=$('sm-spin-btn'); if(spb) spb.onclick=toggleSpin;   // girar/detener la cuenca
+    var flb2=$('sm-fly-btn'); if(flb2) flb2.onclick=toggleFly;  // volar/detener el río
     // observer de capítulos
     obs=new IntersectionObserver(function(ents){
       ents.forEach(function(en){ if(en.isIntersecting){
@@ -1366,7 +1448,7 @@ JS = r"""
     }
   }
 
-  function pause(){ stopOrbit(); stopPlay(); stopTrips(); if(globe){ try{globe.controls().autoRotate=false;}catch(e){} } }
+  function pause(){ stopOrbit(); stopPlay(); stopTrips(); if(flyOn) stopFly(false); if(globe){ try{globe.controls().autoRotate=false;}catch(e){} } }
   function resume(){ if(!inited){ init(); return; } if(scene && scene.orbit){ orbit=true; startOrbit(); }
     if(scene && scene.trips && !reduce){ tripsOn=true; startTrips(); }
     if(globe && !reduce){ try{globe.controls().autoRotate=true;}catch(e){} } }
