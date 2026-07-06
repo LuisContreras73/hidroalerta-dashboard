@@ -1377,74 +1377,46 @@ def construir_excedencia(fcast: pd.DataFrame):
 
 
 def construir_minimapa() -> str:
-    """Inset localizador DENTRO del mapa (esquina): mini-globo en proyección
-    ortográfica centrada en Perú — se ve la curvatura terrestre, la silueta del
-    país (INEI disuelto, 303 vért.) y el punto pulsante de la cuenca. SVG inline
-    ~4 KB; overlay sin interacción (pointer-events:none) sobre el iframe."""
+    """Inset cartográfico clásico (submapa de ubicación) en la esquina del mapa:
+    recuadro con la silueta del Perú (INEI disuelto) y el rectángulo rojo que
+    marca la extensión del mapa principal (bounds reales de terrain_meta.json).
+    SVG inline; overlay sin interacción sobre el iframe."""
     import math
     try:
         coords = json.loads((DATA / "peru_outline.json").read_text(encoding="utf-8"))["coords"]
+        bw, bs_, be, bn = json.loads((DATA / "terrain_meta.json").read_text(encoding="utf-8"))["bounds"]
     except Exception:
         return ""
-    R = 54.0                                   # radio del disco visible en px
-    RP = 165.0                                 # radio de proyección (zoom: ~1/3 del globo)
-    C = R + 6                                  # centro (margen para el halo)
-    lat0, lon0 = math.radians(-10.5), math.radians(-75.5)  # centro de la vista
-    def proj(lat, lng):
-        """Ortográfica ampliada (zoom) recortada al disco: la curvatura se lee
-        en la retícula. Devuelve (x, y, visible)."""
-        la, lo = math.radians(lat), math.radians(lng)
-        cosc = (math.sin(lat0) * math.sin(la) +
-                math.cos(lat0) * math.cos(la) * math.cos(lo - lon0))
-        x = RP * math.cos(la) * math.sin(lo - lon0)
-        y = RP * (math.cos(lat0) * math.sin(la) -
-                  math.sin(lat0) * math.cos(la) * math.cos(lo - lon0))
-        return C + x, C - y, cosc > 0.02
-    def polyline(samples):
-        pts = [proj(la, lo) for la, lo in samples]
-        segs, cur = [], []
-        for x, y, vis in pts:
-            if vis:
-                cur.append(f"{x:.1f},{y:.1f}")
-            elif cur:
-                segs.append(cur); cur = []
-        if cur:
-            segs.append(cur)
-        return "".join(f'<polyline points="{" ".join(g)}" />' for g in segs if len(g) > 1)
-    # Graticule cada 15° (meridianos y paralelos muestreados)
-    grat = ""
-    for lng in range(-100, -49, 10):
-        grat += polyline([(la, lng) for la in range(-45, 26, 2)])
-    for lat in range(-40, 21, 10):
-        grat += polyline([(lat, lo) for lo in range(-100, -49, 2)])
-    peru = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in (proj(a, b) for a, b in coords))
-    bx, by, _ = proj(-11.4, -76.9)             # cuenca Chancay–Huaral
-    S = 2 * C
+    lats = [c[0] for c in coords]; lngs = [c[1] for c in coords]
+    la0, la1 = min(lats), max(lats); lo0, lo1 = min(lngs), max(lngs)
+    kx = math.cos(math.radians((la0 + la1) / 2))
+    W = 96.0                                            # ancho útil del país
+    H = W * (la1 - la0) / ((lo1 - lo0) * kx)            # ≈ 141 px (Perú es alargado)
+    PAD = 8.0
+    def xy(lat, lng):
+        return (PAD + (lng - lo0) / (lo1 - lo0) * W,
+                PAD + (la1 - lat) / (la1 - la0) * H)
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (xy(a, b) for a, b in coords))
+    # rectángulo de extensión del mapa principal (mínimo 9 px para que se lea)
+    x0, y0 = xy(bn, bw); x1, y1 = xy(bs_, be)
+    rw, rh = max(x1 - x0, 9.0), max(y1 - y0, 9.0)
+    rcx, rcy = (x0 + x1) / 2, (y0 + y1) / 2
+    SW, SH = W + 2 * PAD, H + 2 * PAD
     return f"""
-          <figure class="minimapa" aria-label="Ubicación de la cuenca: Perú, Sudamérica">
-            <svg viewBox="0 0 {S:.0f} {S:.0f}" width="112" height="112" role="img"
+          <figure class="minimapa" aria-label="Submapa de ubicación: la cuenca en el Perú">
+            <svg viewBox="0 0 {SW:.0f} {SH:.0f}" width="104" role="img"
                  aria-hidden="true" focusable="false">
-              <defs>
-                <radialGradient id="mmocean" cx="0.38" cy="0.32" r="0.85">
-                  <stop offset="0" stop-color="#173B4E"/>
-                  <stop offset="1" stop-color="#0A2230"/>
-                </radialGradient>
-              </defs>
-              <circle cx="{C:.0f}" cy="{C:.0f}" r="{R + 2.5:.1f}" fill="none"
-                      stroke="rgba(53,200,232,.35)" stroke-width="1"/>
-              <clipPath id="mmdisc"><circle cx="{C:.0f}" cy="{C:.0f}" r="{R:.0f}"/></clipPath>
-              <circle cx="{C:.0f}" cy="{C:.0f}" r="{R:.0f}" fill="url(#mmocean)"/>
-              <g clip-path="url(#mmdisc)">
-                <g fill="none" stroke="rgba(151,196,214,.30)" stroke-width="0.6">{grat}</g>
-                <polygon points="{peru}" fill="#2E8FAD" stroke="#8FE3FF"
-                         stroke-width="1.1" stroke-linejoin="round"/>
-              </g>
-              <circle class="mm-ping" cx="{bx:.1f}" cy="{by:.1f}" r="6"
-                      fill="none" stroke="#FFD86B" stroke-width="1.5"/>
-              <circle cx="{bx:.1f}" cy="{by:.1f}" r="3" fill="#FFD86B"
-                      stroke="#0A2230" stroke-width="1"/>
+              <rect x="0.5" y="0.5" width="{SW - 1:.0f}" height="{SH - 1:.0f}" rx="6"
+                    fill="#FFFFFF" fill-opacity="0.96" stroke="#C7D3DB" stroke-width="1"/>
+              <polygon points="{pts}" fill="#E3EBF0" stroke="#8FA6B2"
+                       stroke-width="1" stroke-linejoin="round"/>
+              <rect x="{rcx - rw / 2:.1f}" y="{rcy - rh / 2:.1f}" width="{rw:.1f}"
+                    height="{rh:.1f}" fill="rgba(192,57,43,.18)" stroke="#C0392B"
+                    stroke-width="1.6"/>
+              <text x="{PAD + 4:.0f}" y="{SH - 7:.0f}" font-family="IBM Plex Mono,monospace"
+                    font-size="9" letter-spacing="1.5" fill="#5B6B78">PER&#218;</text>
             </svg>
-            <figcaption class="mm-cap">La cuenca, en el Perú</figcaption>
+            <figcaption class="mm-cap">Ubicaci&#243;n</figcaption>
           </figure>"""
 
 
@@ -3241,19 +3213,16 @@ CSS_RESULTADOS = r"""
   color:#8494A0;font-size:13px;}
 @media (max-width:640px){.dex-dl{margin-left:0;}}
 
-/* ── Mini-globo localizador: inset en la esquina del mapa (Resumen) ── */
+/* ── Submapa de ubicación (inset cartográfico) en la esquina del mapa ── */
 .minimapa{position:absolute;right:14px;bottom:26px;z-index:20;margin:0;
-  display:flex;flex-direction:column;align-items:center;gap:4px;
-  pointer-events:none;filter:drop-shadow(0 6px 18px rgba(4,16,24,.45));}
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  pointer-events:none;filter:drop-shadow(0 4px 14px rgba(12,30,42,.28));}
 .minimapa svg{display:block;}
-.mm-cap{font-size:10px;letter-spacing:.04em;color:#EAF4F9;white-space:nowrap;
-  padding:2px 9px;border-radius:999px;background:rgba(9,26,36,.72);
-  border:1px solid rgba(120,170,190,.35);}
-.mm-ping{transform-origin:center;transform-box:fill-box;animation:mmping 2.4s ease-out infinite;}
-@keyframes mmping{0%{transform:scale(.5);opacity:.9}70%{transform:scale(1.9);opacity:0}100%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.mm-ping{animation:none;opacity:.5}}
+.mm-cap{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#42525E;
+  padding:2px 8px;border-radius:4px;background:rgba(255,255,255,.92);
+  border:1px solid #C7D3DB;}
 @media (max-width:640px){.minimapa{right:8px;bottom:20px;}
-  .minimapa svg{width:84px;height:84px;}}
+  .minimapa svg{width:78px;}}
 
 /* ── Espectro de dominio de validez (Modelos) ── */
 .dom{display:flex;gap:6px;margin-top:14px;}
