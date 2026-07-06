@@ -5647,6 +5647,7 @@ JS_EXPLORER = """
       x.push(r[0]); y.push(r[1]); prev=d; });
     var tr={x:x,y:y,type:'scatter',mode:'lines',line:{color:c,width:1.25},connectgaps:false,
       hovertemplate:'%{x|%d %b %Y}<br><b>%{y}</b> '+s.unidad+'<extra></extra>'};
+    plot.style.height=(markHeight()+12)+'px';   // el SVG de Plotly es absoluto: sin esto el contenedor colapsa a min-height y el gráfico pisa la nota
     var lay={margin:{l:56,r:16,t:6,b:34},height:markHeight(),
       paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
       font:{family:'IBM Plex Sans, system-ui',size:12,color:'#0C1E2A'},
@@ -5676,7 +5677,7 @@ JS_EXPLORER = """
     if(!drawn){ drawn=true; draw(0); }
     else if(typeof Plotly!=='undefined'){ try{Plotly.Plots.resize(plot);}catch(e){} } }
   document.addEventListener('hidroalerta:tabshown',function(){ setTimeout(activate,90); });
-  window.addEventListener('resize',function(){ if(drawn&&typeof Plotly!=='undefined'){try{Plotly.Plots.resize(plot);}catch(e){}} });
+  window.addEventListener('resize',function(){ if(drawn&&typeof Plotly!=='undefined'){plot.style.height=(markHeight()+12)+'px';try{Plotly.Plots.resize(plot);}catch(e){}} });
   setTimeout(activate,400);   // por si la pestaña Datos ya está visible (deep-link)
 })();
 """
