@@ -1377,37 +1377,74 @@ def construir_excedencia(fcast: pd.DataFrame):
 
 
 def construir_minimapa() -> str:
-    """Mini-mapa localizador (SVG inline, ~3 KB): contorno de Perú con marcador
-    pulsante sobre la cuenca. Proyección equirrectangular con corrección cos(lat)
-    — suficiente a escala país. Contorno: INEI departamentos disueltos (303 vért.)."""
+    """Inset localizador DENTRO del mapa (esquina): mini-globo en proyección
+    ortográfica centrada en Perú — se ve la curvatura terrestre, la silueta del
+    país (INEI disuelto, 303 vért.) y el punto pulsante de la cuenca. SVG inline
+    ~4 KB; overlay sin interacción (pointer-events:none) sobre el iframe."""
     import math
     try:
         coords = json.loads((DATA / "peru_outline.json").read_text(encoding="utf-8"))["coords"]
     except Exception:
         return ""
-    lats = [c[0] for c in coords]; lngs = [c[1] for c in coords]
-    la0, la1 = min(lats), max(lats); lo0, lo1 = min(lngs), max(lngs)
-    kx = math.cos(math.radians((la0 + la1) / 2))          # compresión E-O
-    W = 150.0
-    H = W * (la1 - la0) / ((lo1 - lo0) * kx)
-    def xy(lat, lng):
-        return ((lng - lo0) / (lo1 - lo0) * W,
-                (la1 - lat) / (la1 - la0) * H)
-    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (xy(a, b) for a, b in coords))
-    bx, by = xy(-11.4, -76.9)                             # cuenca Chancay–Huaral
+    R = 54.0                                   # radio del disco visible en px
+    RP = 165.0                                 # radio de proyección (zoom: ~1/3 del globo)
+    C = R + 6                                  # centro (margen para el halo)
+    lat0, lon0 = math.radians(-10.5), math.radians(-75.5)  # centro de la vista
+    def proj(lat, lng):
+        """Ortográfica ampliada (zoom) recortada al disco: la curvatura se lee
+        en la retícula. Devuelve (x, y, visible)."""
+        la, lo = math.radians(lat), math.radians(lng)
+        cosc = (math.sin(lat0) * math.sin(la) +
+                math.cos(lat0) * math.cos(la) * math.cos(lo - lon0))
+        x = RP * math.cos(la) * math.sin(lo - lon0)
+        y = RP * (math.cos(lat0) * math.sin(la) -
+                  math.sin(lat0) * math.cos(la) * math.cos(lo - lon0))
+        return C + x, C - y, cosc > 0.02
+    def polyline(samples):
+        pts = [proj(la, lo) for la, lo in samples]
+        segs, cur = [], []
+        for x, y, vis in pts:
+            if vis:
+                cur.append(f"{x:.1f},{y:.1f}")
+            elif cur:
+                segs.append(cur); cur = []
+        if cur:
+            segs.append(cur)
+        return "".join(f'<polyline points="{" ".join(g)}" />' for g in segs if len(g) > 1)
+    # Graticule cada 15° (meridianos y paralelos muestreados)
+    grat = ""
+    for lng in range(-100, -49, 10):
+        grat += polyline([(la, lng) for la in range(-45, 26, 2)])
+    for lat in range(-40, 21, 10):
+        grat += polyline([(lat, lo) for lo in range(-100, -49, 2)])
+    peru = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in (proj(a, b) for a, b in coords))
+    bx, by, _ = proj(-11.4, -76.9)             # cuenca Chancay–Huaral
+    S = 2 * C
     return f"""
-          <figure class="minimapa" aria-label="Ubicación de la cuenca en el Perú">
-            <svg viewBox="-6 -6 {W+12:.0f} {H+12:.0f}" width="132" role="img"
+          <figure class="minimapa" aria-label="Ubicación de la cuenca: Perú, Sudamérica">
+            <svg viewBox="0 0 {S:.0f} {S:.0f}" width="112" height="112" role="img"
                  aria-hidden="true" focusable="false">
-              <polygon points="{pts}" fill="#EAF3F7" stroke="#9FB8C4"
-                       stroke-width="1.1" stroke-linejoin="round"/>
-              <circle class="mm-ping" cx="{bx:.1f}" cy="{by:.1f}" r="5"
-                      fill="none" stroke="#0B6E8C" stroke-width="1.4"/>
-              <circle cx="{bx:.1f}" cy="{by:.1f}" r="3.2" fill="#0B6E8C"
-                      stroke="#fff" stroke-width="1.2"/>
+              <defs>
+                <radialGradient id="mmocean" cx="0.38" cy="0.32" r="0.85">
+                  <stop offset="0" stop-color="#173B4E"/>
+                  <stop offset="1" stop-color="#0A2230"/>
+                </radialGradient>
+              </defs>
+              <circle cx="{C:.0f}" cy="{C:.0f}" r="{R + 2.5:.1f}" fill="none"
+                      stroke="rgba(53,200,232,.35)" stroke-width="1"/>
+              <clipPath id="mmdisc"><circle cx="{C:.0f}" cy="{C:.0f}" r="{R:.0f}"/></clipPath>
+              <circle cx="{C:.0f}" cy="{C:.0f}" r="{R:.0f}" fill="url(#mmocean)"/>
+              <g clip-path="url(#mmdisc)">
+                <g fill="none" stroke="rgba(151,196,214,.30)" stroke-width="0.6">{grat}</g>
+                <polygon points="{peru}" fill="#2E8FAD" stroke="#8FE3FF"
+                         stroke-width="1.1" stroke-linejoin="round"/>
+              </g>
+              <circle class="mm-ping" cx="{bx:.1f}" cy="{by:.1f}" r="6"
+                      fill="none" stroke="#FFD86B" stroke-width="1.5"/>
+              <circle cx="{bx:.1f}" cy="{by:.1f}" r="3" fill="#FFD86B"
+                      stroke="#0A2230" stroke-width="1"/>
             </svg>
-            <figcaption class="mm-cap"><b>Aquí</b> — vertiente del Pacífico,
-            al norte de Lima</figcaption>
+            <figcaption class="mm-cap">La cuenca, en el Perú</figcaption>
           </figure>"""
 
 
@@ -3204,15 +3241,19 @@ CSS_RESULTADOS = r"""
   color:#8494A0;font-size:13px;}
 @media (max-width:640px){.dex-dl{margin-left:0;}}
 
-/* ── Mini-mapa localizador (Resumen) ── */
-.minimapa{display:flex;align-items:center;gap:14px;margin:18px 0 0;padding:12px 14px;
-  border:1px solid #E2E8EE;border-radius:12px;background:#FBFDFE;max-width:340px;}
-.minimapa svg{flex:0 0 auto;display:block;}
-.mm-cap{font-size:12px;color:#5B6B78;line-height:1.55;}
-.mm-cap b{color:#0B6E8C;}
+/* ── Mini-globo localizador: inset en la esquina del mapa (Resumen) ── */
+.minimapa{position:absolute;right:14px;bottom:26px;z-index:20;margin:0;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  pointer-events:none;filter:drop-shadow(0 6px 18px rgba(4,16,24,.45));}
+.minimapa svg{display:block;}
+.mm-cap{font-size:10px;letter-spacing:.04em;color:#EAF4F9;white-space:nowrap;
+  padding:2px 9px;border-radius:999px;background:rgba(9,26,36,.72);
+  border:1px solid rgba(120,170,190,.35);}
 .mm-ping{transform-origin:center;transform-box:fill-box;animation:mmping 2.4s ease-out infinite;}
-@keyframes mmping{0%{transform:scale(.5);opacity:.9}70%{transform:scale(1.8);opacity:0}100%{opacity:0}}
+@keyframes mmping{0%{transform:scale(.5);opacity:.9}70%{transform:scale(1.9);opacity:0}100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){.mm-ping{animation:none;opacity:.5}}
+@media (max-width:640px){.minimapa{right:8px;bottom:20px;}
+  .minimapa svg{width:84px;height:84px;}}
 
 /* ── Espectro de dominio de validez (Modelos) ── */
 .dom{display:flex;gap:6px;margin-top:14px;}
@@ -3599,11 +3640,11 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           cuerpos de agua. Luego haga clic en una estación para consultar su
           <b>climatología mensual</b>, incluyendo precipitación o caudal, altitud,
           período de registro y valores medios.</p>
-          {minimapa_html}
         </div>
         <div class="mapa-box">
           <iframe title="Mapa interactivo de la cuenca Chancay–Huaral"
                   class="mapa-iframe" srcdoc="{mapa_srcdoc}" loading="lazy"></iframe>
+          {minimapa_html}
         </div>
       </section>
 
@@ -4221,7 +4262,7 @@ main {{ display:block; }}
   .mapa-caption .h-serif {{ grid-column:1 / -1; max-width:34ch; }}
   .mapa-caption .prose {{ margin-top:0; }}
 }}
-.mapa-box {{ border-radius:var(--radius); overflow:hidden;
+.mapa-box {{ position:relative; border-radius:var(--radius); overflow:hidden;
   border:1px solid var(--border); box-shadow:var(--shadow-sm); }}
 .mapa-iframe {{ width:100%; height:clamp(560px,68vh,620px); border:0;
   display:block; }}
