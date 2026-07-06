@@ -3658,40 +3658,29 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <div class="reveal">{dotplot_div}</div>
 
       <header class="tab-head tab-head-sep reveal">
-        <p class="eyebrow">La evidencia completa</p>
+        <p class="eyebrow">Del promedio a la distribución</p>
+        <h2 class="h-serif">¿Cómo de grande es el error un día cualquiera?</h2>
+        <p class="prose prose-wide">El dotplot resume la habilidad en un número; esta
+        curva muestra el <b>error completo, día a día</b> (error absoluto de la
+        mediana vs aforo, prueba 2024–2025): más arriba y a la izquierda = mejor. La
+        línea punteada da la lectura operativa — <b>8 de cada 10 días</b>, cuánto
+        error como máximo.</p>
+      </header>
+      <div class="reveal">{cdf_div}</div>
+
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">La referencia numérica</p>
         <h2 class="h-serif">Métricas por horizonte</h2>
-        <p class="prose prose-wide">Exactitud (NSE, KGE, MAE), calidad
-        probabilística (CRPS) y capacidad de alerta (CSI, POD, FAR) para horizontes
-        de 1 a 14 días.</p>
+        <p class="prose prose-wide">Lo que los gráficos no muestran: capacidad de
+        alerta (<b>CSI, POD, FAR</b>) y calidad probabilística (<b>CRPS</b>), junto a
+        la exactitud (NSE, KGE, MAE), para horizontes de 1 a 14 días — la tabla de
+        consulta que respalda todo lo anterior.</p>
       </header>
       <div class="reveal">{tabla_html}</div>
       <p class="nota reveal">Lectura operativa: a 1 día HydroST detecta 8 de cada 10
       crecidas (POD 0,82) con solo 2 falsas alarmas de cada 10 avisos (FAR 0,18).
       HydroST se evalúa de forma determinista en todos los horizontes: su pronóstico
       probabilístico solo existe a 1–2 días.</p>
-
-      <header class="tab-head tab-head-sep reveal">
-        <p class="eyebrow">Huella por modelo</p>
-        <h2 class="h-serif">Siete métricas de un vistazo</h2>
-        <p class="prose prose-wide">Cada eje re-orientado a <b>habilidad 0–1</b>
-        (se invierten FAR, MAE y CRPS; borde exterior = mejor). A 1 día las huellas
-        casi se superponen; a 7 días solo el modelo propuesto (relleno) conserva la
-        forma — los baselines pierden los ejes de alerta y probabilidad.</p>
-      </header>
-      <div class="reveal">{radar_div}</div>
-      <p class="nota reveal">Firma cualitativa (el detalle fino está en el dotplot y
-      la tabla). Sin alertas emitidas (POD = 0) los ejes de alerta valen 0; sin
-      cuantiles, el eje CRPS vale 0.</p>
-
-      <header class="tab-head tab-head-sep reveal">
-        <p class="eyebrow">Distribución del error</p>
-        <h2 class="h-serif">¿Cómo de grande es el error un día cualquiera?</h2>
-        <p class="prose prose-wide">La curva acumulada del <b>error absoluto</b> de
-        cada modelo (mediana del pronóstico vs aforo, prueba 2024–2025): más arriba y
-        a la izquierda = mejor. La línea punteada marca la lectura operativa —
-        <b>8 de cada 10 días</b>, cuánto error como máximo.</p>
-      </header>
-      <div class="reveal">{cdf_div}</div>
 
       <section class="conc-grid reveal">
         <div class="conc-col">
