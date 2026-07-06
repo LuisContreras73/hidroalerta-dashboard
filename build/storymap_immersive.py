@@ -369,7 +369,20 @@ CSS = r"""
 /* el gesto vertical hace scroll de página (avanza capítulos); el horizontal gira el 3D */
 .sm-deck,.sm-globe{touch-action:pan-y;}
 .sm-deck canvas{outline:none!important;}
-.sm-globe{display:none;}
+/* handoff continuo órbita→terreno: ambos capas cruz-funden (no corte seco) */
+.sm-deck{transition:opacity 1s ease;}
+.sm-globe{display:none;opacity:1;transition:opacity 1s ease;}
+/* etiqueta de la cuenca: globe.gl posiciona el ancla (no le tocamos transform);
+   el pill se desplaza al lado con position/left, no con transform. */
+.sm-globe-anchor{position:relative;pointer-events:none;}
+.sm-globe-lbl{position:absolute;left:13px;top:-11px;font-family:var(--sans,sans-serif);
+  font-size:12px;font-weight:600;color:#EAF6FB;white-space:nowrap;
+  padding:4px 11px 4px 9px;border-radius:999px;background:rgba(7,20,29,.74);
+  border:1px solid rgba(53,200,232,.5);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+  text-shadow:0 1px 8px rgba(4,14,20,.9);animation:sm-lbl-in .8s ease both;}
+.sm-globe-lbl::before{content:'';position:absolute;left:-7px;top:50%;width:8px;height:8px;
+  margin-top:-4px;border-radius:50%;background:#35C8E8;box-shadow:0 0 10px rgba(53,200,232,.95);}
+@keyframes sm-lbl-in{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 .sm-fallback{object-fit:cover;opacity:0;transition:opacity .6s ease;pointer-events:none;}
 .sm-immersive.is-fallback .sm-fallback{opacity:.92;}
 .sm-vignette{position:absolute;inset:0;pointer-events:none;z-index:1;
@@ -868,27 +881,60 @@ JS = r"""
   function toggleSpin(){ spin=!orbit; orbit=spin; if(orbit) startOrbit(); else stopOrbit(); updateSpinBtn(); }
 
   // ── Globo (cap. 1) ────────────────────────────────────────────────────────
+  var BASE_IMG='https://unpkg.com/three-globe/example/img/';
+  var BASIN={lat:-11.34,lng:-76.9};
   function initGlobe(){
     if(globe || typeof Globe==='undefined') return;
     try{
       globe=Globe()(document.getElementById('sm-globe'))
-        .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg')
-        .backgroundColor('rgba(0,0,0,0)').showAtmosphere(true)
-        .atmosphereColor('#4CC4E0').atmosphereAltitude(0.22)
-        .ringsData([{lat:-11.34,lng:-76.9}]).ringColor(function(){return function(t){return 'rgba(27,168,196,'+(1-t)+')';};})
-        .ringMaxRadius(4).ringPropagationSpeed(3).ringRepeatPeriod(900)
-        .pointsData([{lat:-11.34,lng:-76.9}]).pointColor(function(){return '#1BA8C4';})
-        .pointAltitude(0.09).pointRadius(0.95);
-      globe.pointOfView({lat:-11.3,lng:-77,altitude:2.3},0);
-      if(!reduce){ var c=globe.controls(); c.autoRotate=true; c.autoRotateSpeed=0.55; c.enableZoom=false; }
+        .globeImageUrl(BASE_IMG+'earth-blue-marble.jpg')
+        .bumpImageUrl(BASE_IMG+'earth-topology.png')          // relieve real (Andes)
+        .backgroundImageUrl(BASE_IMG+'night-sky.png')         // campo de estrellas (profundidad)
+        .showAtmosphere(true).atmosphereColor('#5AC8E6').atmosphereAltitude(0.25)
+        .ringsData([BASIN]).ringColor(function(){return function(t){return 'rgba(53,200,232,'+(1-t)+')';};})
+        .ringMaxRadius(5).ringPropagationSpeed(2.4).ringRepeatPeriod(1100)
+        .pointsData([BASIN]).pointColor(function(){return '#35C8E8';})
+        .pointAltitude(0.06).pointRadius(0.9)
+        .htmlElementsData([]).htmlElement(function(d){
+          var w=document.createElement('div'); w.className='sm-globe-anchor';
+          var pill=document.createElement('div'); pill.className='sm-globe-lbl'; pill.textContent=d.name;
+          w.appendChild(pill); return w;})
+        .htmlAltitude(0.02);
+      // material: océano con brillo suave + relieve marcado (sin THREE: se mutan objetos ya creados)
+      var m=globe.globeMaterial();
+      if(m){ if('bumpScale' in m) m.bumpScale=12; if('shininess' in m) m.shininess=6;
+        if(m.specular&&m.specular.setHex) m.specular.setHex(0x1b3a4a); }
+      var c=globe.controls(); if(c){ c.enableZoom=false; c.autoRotate=false; }
+      globe.pointOfView({lat:-4,lng:-95,altitude:3.6},0);     // vista lejana inicial (Pacífico)
     }catch(e){ globe=null; }
+  }
+  function showBasinLabel(){ if(globe && curCap==='origen') globe.htmlElementsData([
+      {lat:BASIN.lat,lng:BASIN.lng,name:'Cuenca Chancay–Huaral · Perú'}]); }
+  // Llegada coreografiada: desciende desde órbita hasta encuadrar la cuenca; al
+  // aterrizar, aparece la etiqueta y arranca un giro lento ambiental (ley #10 + Amini).
+  function arriveGlobe(){
+    if(!globe) return;
+    var c=globe.controls(); if(c) c.autoRotate=false;
+    if(reduce){ globe.pointOfView({lat:BASIN.lat,lng:BASIN.lng,altitude:1.7},0); showBasinLabel(); return; }
+    globe.pointOfView({lat:-11.2,lng:BASIN.lng,altitude:1.7}, 3400);
+    setTimeout(function(){ if(curCap!=='origen') return; showBasinLabel();
+      var cc=globe.controls(); if(cc){ cc.autoRotate=true; cc.autoRotateSpeed=0.26; } }, 3500);
   }
   function showGlobe(on){
     var g=$('sm-globe'), d=$('sm-deck');
-    if(g) g.style.display=on?'block':'none';
-    if(d) d.style.opacity=on?'0':'1';
-    if(on && globe){ globe.pointOfView({lat:-11.3,lng:-77,altitude:2.3},1200); }
-    else if(globe){ globe.pointOfView({lat:-11.34,lng:-76.9,altitude:0.6},1600); }
+    if(on){
+      if(g){ g.style.display='block'; g.style.opacity='1'; }
+      if(d) d.style.opacity='0';
+      if(globe){ globe.htmlElementsData([]);
+        globe.pointOfView({lat:-4,lng:-95,altitude:3.6},0);   // reencuadra lejos y desciende
+        setTimeout(arriveGlobe, 90); }
+    } else {
+      if(d) d.style.opacity='1';                              // el terreno emerge…
+      if(globe){ var c=globe.controls(); if(c) c.autoRotate=false; globe.htmlElementsData([]);
+        globe.pointOfView({lat:BASIN.lat,lng:BASIN.lng,altitude:0.28}, reduce?0:1400); }  // …y el globo se hunde hacia la cuenca
+      if(g){ g.style.opacity='0';                             // cruz-fundido (handoff continuo)
+        setTimeout(function(){ if(curCap!=='origen' && g) g.style.display='none'; }, 1300); }
+    }
   }
 
   // ── Control de timelapse ──────────────────────────────────────────────────
