@@ -16,14 +16,8 @@
       -77.15,
       -11.48
     ],
-    "w": 1400,
-    "h": 1139,
-    "huella": {
-      "file": "media/juxtapose/flood_huella.png",
-      "agua_ha": 0.1,
-      "arrasado_ha": 74.5,
-      "nota": "cambios dentro de un corredor de 500 m del cauce"
-    }
+    "w": 1632,
+    "h": 1328
   },
   "agri": {
     "antes": {

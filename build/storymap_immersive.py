@@ -48,9 +48,9 @@ def _capitulos(meta) -> list:
         dict(id="cuenca", num="02", eyebrow="La cuenca, vista desde arriba",
              titulo="Tres mil kilómetros cuadrados de montaña y valle",
              parrafos=[
-                 f"La cuenca del Chancay–Huaral abarca <b>{area:,.0f} km²</b> organizados en "
-                 f"<b>{nsub} subcuencas</b>. Desde aquí, a vista de satélite, parece un mapa "
-                 "plano; pero su historia se cuenta en la <b>tercera dimensión</b>.",
+                 "Este es el territorio completo, como lo ve un satélite — y sus números "
+                 "hablan solos, a la derecha. Desde aquí parece un mapa plano; pero su "
+                 "historia se cuenta en la <b>tercera dimensión</b>.",
                  "Del litoral a la cabecera hay más de <b>5 000 m</b> de desnivel. Esa altura "
                  "lo decide todo: dónde cae la lluvia, cuánto tarda en bajar y quién queda "
                  "expuesto cuando el río crece.",
@@ -169,10 +169,14 @@ def _card_extras(meta):
     area = f"{meta.get('cuenca_area_km2', 3062.6):,.0f}".replace(",", " ")
     nsub = meta.get("n_subcuencas", 9)
     return {
-        "cuenca": _sm_stats([(area, "km²"), (str(nsub), "subcuencas"), ("0–5 242", "m s.n.m.")]),
+        # cap 02: los números grandes viven FUERA de la tarjeta (overlay #sm-bigstats)
+        "cuenca": "",
         "relieve": _sm_elev_bar(),
-        "cabeceras": _sm_stats([("56 %", "del rendimiento hídrico"), ("122 km", "río principal"),
-                                ("3", "cabeceras &gt;4 000 m")]),
+        # tiempo de concentración: Giandotti 9,9 h · Témez 21,3 h (L=121,9 km,
+        # ΔH=4 833 m, S=0,0396, A=3 062,7 km², Hm≈2 622 m) → «10–21 horas».
+        "cabeceras": _sm_stats([("10–21 h", "viaje de una gota: cabecera → mar"),
+                                ("122 km", "río principal"),
+                                ("56 %", "del rendimiento hídrico")]),
         "clima": _sm_stats([("Dic–Abr", "temporada húmeda"), ("&gt;700 mm", "al año en la cabecera")]),
         "invisible": _sm_tags(["Humedad de suelo", "Nieve", "Vegetación", "ERA5-Land"]),
         "integracion": _sm_stats([("6", "capas de datos"), ("1", "misma cuenca")]),
@@ -299,6 +303,18 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
 
         <!-- Puntos de progreso: un punto clicable por capítulo (los construye el JS). -->
         <nav class="sm-dots" id="sm-dots" aria-label="Capítulos del recorrido"></nav>
+
+        <!-- Cifras grandes del cap. 02 (fuera de la tarjeta, a la derecha de la cuenca). -->
+        <div class="sm-bigstats" id="sm-bigstats" hidden aria-label="Cifras de la cuenca">
+          <div class="sm-big"><span class="sm-big-n mono">3 063</span>
+            <span class="sm-big-l">km² de cuenca</span></div>
+          <div class="sm-big"><span class="sm-big-n mono">9</span>
+            <span class="sm-big-l">subcuencas</span></div>
+          <div class="sm-big"><span class="sm-big-n mono">122<small> km</small></span>
+            <span class="sm-big-l">de río principal</span></div>
+          <div class="sm-big"><span class="sm-big-n mono">0–5 242<small> m</small></span>
+            <span class="sm-big-l">de desnivel al mar</span></div>
+        </div>
 
         <!-- Pista de scroll (desaparece tras el primer avance). -->
         <div class="sm-scroll-hint" id="sm-scroll-hint" aria-hidden="true">
@@ -437,6 +453,23 @@ CSS = r"""
 .sm-dot:hover{border-color:#7FD3E3;transform:scale(1.25);}
 .sm-dot.is-on{background:#35C8E8;border-color:#35C8E8;box-shadow:0 0 8px rgba(53,200,232,.6);}
 @media (max-width:760px){.sm-dots{display:none;}}
+/* Cifras grandes del cap. 02: tipografía como protagonista, fuera de la tarjeta. */
+.sm-bigstats{position:absolute;right:clamp(40px,7vw,120px);top:50%;transform:translateY(-50%);
+  z-index:3;display:flex;flex-direction:column;gap:clamp(14px,2.6vh,26px);text-align:right;
+  pointer-events:none;}
+.sm-big{opacity:0;transform:translateX(18px);animation:sm-big-in .7s ease forwards;}
+.sm-big:nth-child(2){animation-delay:.15s;}
+.sm-big:nth-child(3){animation-delay:.30s;}
+.sm-big:nth-child(4){animation-delay:.45s;}
+@keyframes sm-big-in{to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:reduce){.sm-big{animation:none;opacity:1;transform:none;}}
+.sm-big-n{display:block;font-size:clamp(30px,4.6vw,58px);font-weight:700;color:#EAF6FB;
+  line-height:1;letter-spacing:-.01em;text-shadow:0 2px 22px rgba(4,14,20,.85),0 0 2px rgba(4,14,20,.9);}
+.sm-big-n small{font-size:.45em;font-weight:500;color:#9fc5d2;}
+.sm-big-l{display:block;font-family:var(--sans,sans-serif);font-size:clamp(10px,1vw,12.5px);
+  letter-spacing:.12em;text-transform:uppercase;color:#a8c6d2;margin-top:5px;
+  text-shadow:0 1px 10px rgba(4,14,20,.9);}
+@media (max-width:900px){.sm-bigstats{display:none;}}
 @media (prefers-reduced-motion:reduce){.sm-spin-btn.is-on .sm-spin-ico{animation:none;}}
 .sm-scroll-hint{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:3;
   display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11.5px;
@@ -532,7 +565,7 @@ JS = r"""
   // Escenas por capítulo: cámara + capas + timelapse.
   var SCENES={
     origen:   {globe:true},
-    cuenca:   {flat2d:true, pitch:0, bearing:0,  view:'basin', reveal:0, subs:true},
+    cuenca:   {flat2d:true, pitch:0, bearing:0,  view:'basin', reveal:0, subs:true, bigstats:true},
     relieve:  {tex:'satellite',pitch:52,bearing:-18,view:'basin', reveal:0.4, rivers:true,rivnames:true, orbit:true, trips:true},
     cabeceras:{tex:'satellite',pitch:50,bearing:-18,view:'head',  reveal:1, rivers:true,rivnames:true,points:true,heads:true,orbit:true,trips:true},
     clima:    {tex:'relief',   pitch:50,bearing:-10,view:'basin', reveal:0.7,rivers:true,rivnames:true,heads:true,tl:'clima'},
@@ -987,6 +1020,7 @@ JS = r"""
     // globo vs deck
     showGlobe(!!s.globe);
     var spb=$('sm-spin-btn'); if(spb) spb.hidden=!!s.globe;
+    var bs=$('sm-bigstats'); if(bs) bs.hidden=!s.bigstats;
     if(s.globe){ hideControl(); $('sm-hydro').hidden=true; showPlots(false); orbit=false; stopOrbit(); updateSpinBtn(); if(hud) hud.classList.remove('is-on'); return; }
     // exploded layer stack (capas de datos que se separan y se integran)
     if(s.stack){

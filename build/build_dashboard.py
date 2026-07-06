@@ -568,8 +568,8 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
             f"<div style='font-family:IBM Plex Sans,system-ui;font-size:13px;"
             f"min-width:180px'>"
             f"<b style='color:{COL_DEEP}'>{p['nombre']}</b><br>"
-            f"<span style='color:{COL_MUTED}'>Elevación:</span> {p['elev_m']:,} m<br>"
-            f"<span style='color:{COL_MUTED}'>Área:</span> {p['area_km2']:,} km²"
+            f"<span style='color:{COL_MUTED}'>Elevación:</span> {f"{p['elev_m']:,}".replace(',', ' ')} m<br>"
+            f"<span style='color:{COL_MUTED}'>Área:</span> {f"{p['area_km2']:,.1f}".replace(',', ' ').replace('.', ',')} km²"
             f"{outlet_line}"
             f"</div>",
             max_width=260,
@@ -773,14 +773,14 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
                 f"font-size:12.5px;min-width:170px;color:#0C1E2A'>"
                 f"<b style='color:{COL_CYAN}'>Cuerpo de agua</b><br>"
                 f"<b>{nom}</b><br>"
-                f"<span style='color:{COL_MUTED}'>Área:</span> {area:.2f} km²"
+                f"<span style='color:{COL_MUTED}'>Área:</span> {f'{area:,.1f}'.replace(',', ' ').replace('.', ',')} km²"
                 f"</div>", max_width=230)
             folium.GeoJson(
                 ft,
                 style_function=_estilo_lag,
                 highlight_function=lambda _f: {"weight": 2.0,
                                                "fillOpacity": 0.78},
-                tooltip=folium.Tooltip(f"<b>{nom}</b> · {area:.2f} km²"),
+                tooltip=folium.Tooltip(f"<b>{nom}</b> · {f'{area:,.1f}'.replace(',', ' ').replace('.', ',')} km²"),
                 popup=popup,
             ).add_to(grp_lag)
     except Exception:
@@ -805,7 +805,7 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
                 style_function=_estilo_glac,
                 highlight_function=lambda _f: {"weight": 1.8,
                                                "fillOpacity": 0.92},
-                tooltip=folium.Tooltip(f"<b>{nom}</b> · {area:.2f} km²"),
+                tooltip=folium.Tooltip(f"<b>{nom}</b> · {f'{area:,.1f}'.replace(',', ' ').replace('.', ',')} km²"),
             ).add_to(grp_glac)
         grp_glac.add_to(m)
     except Exception:
@@ -2094,16 +2094,16 @@ def construir_eventos_impactos() -> str:
     tour = [
         {"x": 50, "y": 50, "k": 1, "nombre": "Vista completa",
          "nota": "Todo el valle bajo; el cauce es la franja diagonal."},
-        {"x": 92.1, "y": 13.9, "k": 2.8, "nombre": "Puerta del valle",
+        {"x": 92.1, "y": 13.9, "k": 2.4, "nombre": "Puerta del valle",
          "nota": "Aguas arriba de Huaral: el cauce llega angosto entre cerros… "
                  "y sale del evento convertido en una franja ancha de sedimento."},
-        {"x": 74.3, "y": 39.0, "k": 2.8, "nombre": "Palpa–Caqui",
+        {"x": 74.3, "y": 39.0, "k": 2.4, "nombre": "Palpa–Caqui",
          "nota": "Sectores señalados como vulnerables desde 2017: la crecida "
                  "se comió vegetación ribereña y dejó el cauce blanco."},
-        {"x": 66.5, "y": 65.4, "k": 2.8, "nombre": "Aucallama–Manchuria",
+        {"x": 66.5, "y": 65.4, "k": 2.4, "nombre": "Aucallama–Manchuria",
          "nota": "Aquí el desborde de 2017 arrasó +200 ha de cultivos; en 2023 "
                  "el cauce volvió a ensancharse contra los campos."},
-        {"x": 55.3, "y": 91.9, "k": 2.8, "nombre": "Hacia la desembocadura",
+        {"x": 55.3, "y": 91.9, "k": 2.4, "nombre": "Hacia la desembocadura",
          "nota": "El tramo final antes de Chancay: compare el ancho del cauce "
                  "y el sedimento que baja hacia el mar."},
     ]
@@ -3633,9 +3633,12 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <p class="nota reveal">La ACF cae muy despacio y el <b>lag-1 ≈ 0,99</b>: el
       caudal de hoy explica casi por completo el de mañana, lo que sustenta la fuerte
       persistencia y el techo del baseline a 1 día. La CCF alcanza su máximo hacia el
-      <b>lag ≈ 4 días</b>, una estimación del tiempo de concentración de la cuenca:
-      la lluvia se refleja en el caudal con unos días de retardo, margen que habilita
-      la alerta temprana.</p>
+      <b>lag ≈ 4 días</b>: la <b>respuesta integrada</b> de la cuenca — suelo,
+      acuífero y tránsito— tarda unos días en trasladar la lluvia al caudal, el margen
+      que habilita la alerta temprana. No confundir con el <b>tiempo de
+      concentración</b> del cauce (el viaje de una gota de escorrentía: <b>10–21 h</b>
+      según Giandotti/Témez con L = 121,9 km, ΔH = 4 833 m, A = 3 063 km²): el agua
+      corre rápido; lo que da los días de margen es todo lo que la retiene antes.</p>
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Representación · embeddings</p>
