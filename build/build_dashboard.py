@@ -29,6 +29,7 @@ from pathlib import Path
 
 import folium
 import numpy as np
+from plotly.subplots import make_subplots
 import pandas as pd
 import plotly.graph_objects as go
 from folium.plugins import Fullscreen
@@ -1373,6 +1374,99 @@ def construir_excedencia(fcast: pd.DataFrame):
              "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
     fecha = f"{emision.day} de {meses[emision.month-1]} de {emision.year}"
     return div, fecha
+
+
+def construir_radar_modelos(metr: pd.DataFrame) -> str:
+    """Huella radial por modelo (h=1 y h=7). El radar es un canal débil (ángulo/área,
+    Cleveland & McGill) — se usa como FIRMA de un vistazo, no para lectura fina (esa
+    es el dotplot). Reglas de honestidad: todas las métricas re-orientadas a
+    «habilidad 0–1» (se invierten FAR/MAE/CRPS); si un modelo no emite alertas
+    (POD=0), sus ejes de alerta valen 0 (un FAR=0 por no alertar no es mérito);
+    sin CRPS (sin cuantiles) → 0 en ese eje."""
+    ejes = ["NSE", "KGE", "Detección<br>(POD)", "Alerta certera<br>(1−FAR)",
+            "CSI", "Error bajo<br>(MAE rel.)", "Prob. (CRPS rel.)"]
+    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "polar"}]*2],
+                        subplot_titles=("a 1 día", "a 7 días"),
+                        horizontal_spacing=0.16)
+    for ci, ld in enumerate((1, 7), start=1):
+        sub = metr[metr["lead"] == ld].set_index("model")
+        mae_max = sub["MAE"].max()
+        crps_max = sub["CRPS"].max()
+        for mod in ORDEN_MODELO:
+            if mod not in sub.index:
+                continue
+            r = sub.loc[mod]
+            sin_alerta = (r["POD"] == 0)
+            vals = [max(0, min(1, r["NSE"])), max(0, min(1, r["KGE"])),
+                    r["POD"], 0 if sin_alerta else 1 - r["FAR"],
+                    r["CSI"], 1 - r["MAE"]/mae_max,
+                    0 if pd.isna(r["CRPS"]) else 1 - r["CRPS"]/crps_max]
+            es_prop = (mod == "RA-TFT")
+            fig.add_trace(go.Scatterpolar(
+                r=vals + vals[:1], theta=ejes + ejes[:1],
+                name=mod, legendgroup=mod, showlegend=(ci == 1),
+                line=dict(color=COL_MODELO.get(mod, COL_MUTED),
+                          width=2.6 if es_prop else 1.4),
+                fill="toself" if es_prop else None,
+                fillcolor="rgba(11,110,140,0.14)" if es_prop else None,
+                hovertemplate=mod + " · %{theta}: %{r:.2f}<extra></extra>"),
+                row=1, col=ci)
+    polar = dict(radialaxis=dict(range=[0, 1], tickfont=dict(size=9, family=FONT_MONO),
+                                 gridcolor=COL_BORDER, angle=90, tickangle=90),
+                 angularaxis=dict(tickfont=dict(size=10.5, family=FONT_SANS,
+                                                color=COL_INK), gridcolor=COL_BORDER),
+                 bgcolor="rgba(0,0,0,0)")
+    fig.update_layout(**layout_base(
+        margin=dict(l=60, r=60, t=64, b=30), height=430,
+        polar=polar, polar2=polar,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center",
+                    x=0.5, font=dict(size=12, family=FONT_SANS, color=COL_MUTED))))
+    return fig.to_html(include_plotlyjs=False, full_html=False,
+                       div_id="grafico-radar",
+                       config={"displayModeBar": False, "responsive": True})
+
+
+def construir_cdf_errores(fcast: pd.DataFrame) -> str:
+    """CDF empírica del error absoluto |obs − p50| por modelo (h=1 y h=7): muestra la
+    DISTRIBUCIÓN completa del error, no un promedio. Lectura de excedencia natural
+    para hidrólogos: «el 80 % de los días, el error es ≤ X m³/s»."""
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("a 1 día", "a 7 días"),
+                        shared_yaxes=True, horizontal_spacing=0.07)
+    for ci, ld in enumerate((1, 7), start=1):
+        for mod in ORDEN_MODELO:
+            d = fcast[(fcast["model"] == mod) & (fcast["lead"] == ld)].dropna(subset=["obs", "p50"])
+            if d.empty:
+                continue
+            err = np.sort(np.abs(d["obs"] - d["p50"]).values)
+            y = np.arange(1, len(err) + 1) / len(err) * 100
+            es_prop = (mod == "RA-TFT")
+            fig.add_trace(go.Scatter(
+                x=err, y=y, mode="lines", name=mod, legendgroup=mod,
+                showlegend=(ci == 1),
+                line=dict(color=COL_MODELO.get(mod, COL_MUTED),
+                          width=2.8 if es_prop else 1.5),
+                hovertemplate=mod + " · error ≤ %{x:.1f} m³/s el %{y:.0f} % de los días<extra></extra>"),
+                row=1, col=ci)
+        fig.add_hline(y=80, line=dict(color=COL_BORDER, width=1, dash="dot"),
+                      row=1, col=ci)
+    fig.add_annotation(xref="paper", yref="y", x=0.99, y=83, xanchor="right",
+                       showarrow=False, text="8 de cada 10 días",
+                       font=dict(size=10.5, family=FONT_SANS, color=COL_MUTED))
+    fig.update_xaxes(title_text="error absoluto (m³/s)", range=[0, 25], row=1, col=1,
+                     gridcolor=COL_BORDER, tickfont=dict(size=11, family=FONT_MONO))
+    fig.update_xaxes(title_text="error absoluto (m³/s)", range=[0, 25], row=1, col=2,
+                     gridcolor=COL_BORDER, tickfont=dict(size=11, family=FONT_MONO))
+    fig.update_yaxes(title_text="% de días con error menor", range=[0, 100], row=1, col=1,
+                     gridcolor=COL_BORDER, tickfont=dict(size=11, family=FONT_MONO))
+    fig.update_yaxes(range=[0, 100], row=1, col=2, gridcolor=COL_BORDER)
+    fig.update_layout(**layout_base(
+        margin=dict(l=62, r=18, t=48, b=46), height=380,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="left", x=0,
+                    font=dict(size=12, family=FONT_SANS, color=COL_MUTED))))
+    return fig.to_html(include_plotlyjs=False, full_html=False,
+                       div_id="grafico-cdf",
+                       config={"displayModeBar": False, "responsive": True})
 
 
 def construir_dotplot_horizonte(metr: pd.DataFrame) -> str:
@@ -3121,7 +3215,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
               recorrido_div, resultados_html, protocolo_html, explorador_div="",
               eventos_div="", dotplot_div="", espagueti_div="",
-              excedencia_html="", panel_hoy_html="") -> str:
+              excedencia_html="", panel_hoy_html="", radar_div="", cdf_div="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3497,6 +3591,29 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         de 1 a 14 días.</p>
       </header>
       <div class="reveal">{tabla_html}</div>
+
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">Huella por modelo</p>
+        <h2 class="h-serif">Siete métricas de un vistazo</h2>
+        <p class="prose prose-wide">Cada eje re-orientado a <b>habilidad 0–1</b>
+        (se invierten FAR, MAE y CRPS; borde exterior = mejor). A 1 día las huellas
+        casi se superponen; a 7 días solo el modelo propuesto (relleno) conserva la
+        forma — los baselines pierden los ejes de alerta y probabilidad.</p>
+      </header>
+      <div class="reveal">{radar_div}</div>
+      <p class="nota reveal">Firma cualitativa (el detalle fino está en el dotplot y
+      la tabla). Sin alertas emitidas (POD = 0) los ejes de alerta valen 0; sin
+      cuantiles, el eje CRPS vale 0.</p>
+
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">Distribución del error</p>
+        <h2 class="h-serif">¿Cómo de grande es el error un día cualquiera?</h2>
+        <p class="prose prose-wide">La curva acumulada del <b>error absoluto</b> de
+        cada modelo (mediana del pronóstico vs aforo, prueba 2024–2025): más arriba y
+        a la izquierda = mejor. La línea punteada marca la lectura operativa —
+        <b>8 de cada 10 días</b>, cuánto error como máximo.</p>
+      </header>
+      <div class="reveal">{cdf_div}</div>
 
       <section class="conc-grid reveal">
         <div class="conc-col">
@@ -6309,6 +6426,8 @@ def main():
     espagueti_div = construir_espagueti_lluvia()
     exc_div, exc_fecha = construir_excedencia(fcast)
     panel_hoy_html = panel_hoy()
+    radar_div = construir_radar_modelos(metr)
+    cdf_div = construir_cdf_errores(fcast)
     excedencia_html = f'''
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Del cuantil a la decisión</p>
@@ -6326,7 +6445,8 @@ def main():
                        mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
                        recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div,
-                       dotplot_div, espagueti_div, excedencia_html, panel_hoy_html)
+                       dotplot_div, espagueti_div, excedencia_html, panel_hoy_html,
+                       radar_div, cdf_div)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
