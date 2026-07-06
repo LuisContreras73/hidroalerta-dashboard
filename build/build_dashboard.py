@@ -3658,28 +3658,17 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <div class="reveal">{dotplot_div}</div>
 
       <header class="tab-head tab-head-sep reveal">
-        <p class="eyebrow">La misma carrera, animada</p>
-        <h2 class="h-serif">Habilidad predictiva según el horizonte</h2>
-        <p class="prose prose-wide">Mueva el deslizador o pulse reproducir: la
-        Persistencia (naive) parte alta a 1 día pero decae con rapidez, mientras que
-        el modelo propuesto sostiene mejor la habilidad a varios días.</p>
-      </header>
-      <div class="reveal">{anim_div}</div>
-      <p class="nota reveal">Barras de NSE por modelo; la línea base en cero indica
-      ausencia de habilidad respecto a la media. Lectura operativa: a 1 día el
-      sistema detecta ~7 de cada 10 crecidas (POD 0,71); a 7–14 días el modelo
-      propuesto es el que mejor conserva la habilidad. HydroST se evalúa de forma
-      determinista en todos los horizontes (su pronóstico probabilístico solo
-      existe a 1–2 días; ver tabla).</p>
-
-      <header class="tab-head tab-head-sep reveal">
-        <p class="eyebrow">02 · Métricas</p>
+        <p class="eyebrow">La evidencia completa</p>
         <h2 class="h-serif">Métricas por horizonte</h2>
         <p class="prose prose-wide">Exactitud (NSE, KGE, MAE), calidad
         probabilística (CRPS) y capacidad de alerta (CSI, POD, FAR) para horizontes
         de 1 a 14 días.</p>
       </header>
       <div class="reveal">{tabla_html}</div>
+      <p class="nota reveal">Lectura operativa: a 1 día HydroST detecta 8 de cada 10
+      crecidas (POD 0,82) con solo 2 falsas alarmas de cada 10 avisos (FAR 0,18).
+      HydroST se evalúa de forma determinista en todos los horizontes: su pronóstico
+      probabilístico solo existe a 1–2 días.</p>
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Huella por modelo</p>
@@ -3703,7 +3692,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <b>8 de cada 10 días</b>, cuánto error como máximo.</p>
       </header>
       <div class="reveal">{cdf_div}</div>
-{dominio_html}
 
       <section class="conc-grid reveal">
         <div class="conc-col">
@@ -3729,6 +3717,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           </ul>
         </div>
       </section>
+{dominio_html}
     </div>
   </section>
 
