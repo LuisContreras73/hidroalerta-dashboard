@@ -1376,6 +1376,84 @@ def construir_excedencia(fcast: pd.DataFrame):
     return div, fecha
 
 
+def construir_dominio_validez() -> str:
+    """Cierre de Modelos: espectro de dominio de validez (qué herramienta manda en
+    cada horizonte) + evidencia medida + plan de monitoreo operativo en plegable.
+    Cifras verificadas en reports/diagnostico (FIG1–FIG5) y metricas_modelos.csv."""
+    return """
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">Síntesis · dominio de validez</p>
+        <h2 class="h-serif">Sabemos dónde termina cada herramienta</h2>
+        <p class="prose prose-wide">Ningún modelo sirve para todo: medimos dónde manda
+        cada uno y el sistema entrega, en cada horizonte, la mejor herramienta que la
+        física de la información permite. El espectro completo, con su evidencia:</p>
+      </header>
+      <div class="dom reveal" role="img" aria-label="Espectro de validez por horizonte">
+        <div class="dom-seg" style="flex:1.1;--c:#0A3D54">
+          <span class="dom-h">1–2 días</span>
+          <span class="dom-tool">Alerta operativa · HydroST</span>
+          <span class="dom-ev">NSE 0,97 · detecta 8 de cada 10 crecidas (FAR 0,18)</span>
+        </div>
+        <div class="dom-seg dom-seg-star" style="flex:1.6;--c:#0B6E8C">
+          <span class="dom-h">3–14 días</span>
+          <span class="dom-tool">Tendencia + prob. de excedencia · RA-TFT</span>
+          <span class="dom-ev">único con habilidad sostenida (NSE 0,83→0,49); sin
+          desfase efectivo a 7 días</span>
+        </div>
+        <div class="dom-seg" style="flex:1.3;--c:#1BA8C4">
+          <span class="dom-h">1–12 meses</span>
+          <span class="dom-tool">Producto mensual (banda + estado)</span>
+          <span class="dom-ev">NSE 0,59 ≈ climatología 0,57, con incertidumbre
+          explícita</span>
+        </div>
+        <div class="dom-seg" style="flex:1.0;--c:#5B6B78">
+          <span class="dom-h">más allá</span>
+          <span class="dom-tool">Climatología</span>
+          <span class="dom-ev">el benchmark honesto: todo rollout diario pierde
+          contra ella (NSE −1,3 vs +0,6)</span>
+        </div>
+      </div>
+      <p class="nota reveal">Evaluación: entrenamiento ≤ 2022 · validación 2023 ·
+      prueba 2024–2025. Los conceptuales tienen su rol: GR4J/GR2M <b>simulan</b> con
+      lluvia conocida (reconstrucción histórica, balances a posteriori: GR2M NSE 0,79
+      con la lluvia observada del mes); el aprendizaje automático <b>pronostica</b>
+      sin conocerla — a 7 días (NSE 0,68) supera incluso al GR4J alimentado con
+      lluvia perfecta (NSE 0,04).</p>
+
+      <details class="tec-details reveal">
+        <summary>Para el jurado técnico · ¿cuándo fallarán los modelos y cómo nos avisarán?</summary>
+        <div>
+          <p class="prose prose-wide" style="margin-top:14px">Los modos de fallo son
+          <b>predecibles y detectables</b>. El plan de monitoreo operativo:</p>
+          <ul class="conc-list" style="margin-top:10px">
+            <li><b>Skill móvil (90 días) contra la persistencia</b> — el canario
+            operativo: si el modelo pierde &gt;4 semanas seguidas, se investiga y
+            reentrena.</li>
+            <li><b>Cobertura de banda móvil</b>: nominal 80 %; fuera de 65–95 % →
+            recalibrar cuantiles (la banda mensual hoy cubre 71 %: ligeramente
+            sobreconfiada, declarado).</li>
+            <li><b>Bandera de extrapolación</b>: sobre el máximo histórico de
+            entrenamiento (113,4 m³/s) el modelo tenderá a subpredecir — la interfaz
+            debe marcar «fuera de rango: confiar en el signo, no en la magnitud».</li>
+            <li><b>Re-aforo tras cada evento Fuerte/Extremo</b>: las crecidas
+            remodelan la sección del cauce y desplazan la curva de gasto — sin
+            re-aforo, la deriva contamina todo en silencio.</li>
+            <li><b>Reentrenamiento programado</b> tras cada temporada húmeda
+            (incorporando el año nuevo) + extraordinario si dispara el primer
+            trigger.</li>
+          </ul>
+          <p class="nota">Diagnósticos que sustentan esta sección: brecha
+          train→test moderada y compartida con los baselines (no solo sobreajuste);
+          a 14 días existe un eco parcial del estado inicial (medido por correlación
+          cruzada) — por eso ese horizonte se comunica solo como probabilidad; un
+          rollout diario a meses vista colapsa a una constante y pierde contra la
+          climatología — por eso la escala mensual usa su producto propio. Próximo
+          salto de modelado: ingerir precipitación pronosticada (NWP) y reencuadrar
+          h≥7 como promedio de la semana 2.</p>
+        </div>
+      </details>"""
+
+
 def construir_radar_modelos(metr: pd.DataFrame) -> str:
     """Huella radial por modelo (h=1 y h=7). El radar es un canal débil (ángulo/área,
     Cleveland & McGill) — se usa como FIRMA de un vistazo, no para lectura fina (esa
@@ -3089,6 +3167,16 @@ CSS_RESULTADOS = r"""
   color:#8494A0;font-size:13px;}
 @media (max-width:640px){.dex-dl{margin-left:0;}}
 
+/* ── Espectro de dominio de validez (Modelos) ── */
+.dom{display:flex;gap:6px;margin-top:14px;}
+.dom-seg{display:flex;flex-direction:column;gap:5px;padding:14px 15px 12px;
+  border-radius:12px;background:#fff;border:1px solid #E2E8EE;border-top:4px solid var(--c);}
+.dom-seg-star{background:#F4FAFC;box-shadow:0 6px 22px rgba(11,110,140,.10);}
+.dom-h{font-family:IBM Plex Mono,monospace;font-size:14px;font-weight:700;color:var(--c);}
+.dom-tool{font-size:13px;font-weight:600;color:#0C1E2A;line-height:1.35;}
+.dom-ev{font-size:11.5px;color:#5B6B78;line-height:1.5;margin-top:auto;}
+@media(max-width:860px){.dom{flex-direction:column;}}
+
 /* ── Panel «situación de hoy» (Resumen) ── */
 .hoy{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#E2E8EE;
   border:1px solid #E2E8EE;border-radius:14px;overflow:hidden;margin-bottom:10px;}
@@ -3215,7 +3303,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
               recorrido_div, resultados_html, protocolo_html, explorador_div="",
               eventos_div="", dotplot_div="", espagueti_div="",
-              excedencia_html="", panel_hoy_html="", radar_div="", cdf_div="") -> str:
+              excedencia_html="", panel_hoy_html="", radar_div="", cdf_div="",
+              dominio_html="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3614,6 +3703,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <b>8 de cada 10 días</b>, cuánto error como máximo.</p>
       </header>
       <div class="reveal">{cdf_div}</div>
+{dominio_html}
 
       <section class="conc-grid reveal">
         <div class="conc-col">
@@ -6428,6 +6518,7 @@ def main():
     panel_hoy_html = panel_hoy()
     radar_div = construir_radar_modelos(metr)
     cdf_div = construir_cdf_errores(fcast)
+    dominio_html = construir_dominio_validez()
     excedencia_html = f'''
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Del cuantil a la decisión</p>
@@ -6446,7 +6537,7 @@ def main():
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
                        recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div,
                        dotplot_div, espagueti_div, excedencia_html, panel_hoy_html,
-                       radar_div, cdf_div)
+                       radar_div, cdf_div, dominio_html)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
