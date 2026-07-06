@@ -26,7 +26,7 @@
    "vmax": 153.0,
    "unidad": "mm/mes",
    "cmap": "YlGnBu",
-   "label": "Precipitación media mensual (PISCOp)"
+   "label": "Precipitación media mensual (PISCOp v3.0)"
   },
   "temp": {
    "n": 12,
@@ -34,7 +34,7 @@
    "vmax": 26.3,
    "unidad": "°C",
    "cmap": "RdYlBu_r",
-   "label": "Temperatura media mensual (PISCOt)"
+   "label": "Temperatura media mensual (PISCOt v1.2)"
   },
   "humedos": [
    12,

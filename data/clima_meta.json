@@ -24,11 +24,11 @@
     "Dic"
   ],
   "precip": {
-    "vmin": 1.3,
-    "vmax": 200.3,
+    "vmin": 0.0,
+    "vmax": 143.2,
     "unidad": "mm/mes",
     "cmap": "YlGnBu",
-    "label": "Precipitación (PISCOp v2.1)"
+    "label": "Precipitación (PISCOp v3.0)"
   },
   "temp": {
     "vmin": 3.2,

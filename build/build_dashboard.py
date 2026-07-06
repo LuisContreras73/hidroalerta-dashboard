@@ -2597,8 +2597,8 @@ def _hero_hidrograma(serie: pd.DataFrame, w: int = 1280, h: int = 380) -> str:
 # data URI si existe; si no, degrada a una etiqueta tipográfica.
 # Atribución correcta por institución de origen (verificada):
 #   · ANA      → caudal observado y red hidrométrica (SNIRH).
-#   · SENAMHI / IGP → PISCOp v2.1 (precipitación) y PISCOt v1.2 (Tmax/Tmin);
-#                     extensión CHIRPS-QM (2016+).
+#   · SENAMHI / IGP → PISCOp v3.0 (precipitación 1981–2025, D050) y PISCOt v1.2
+#                     (Tmax/Tmin); CHIRPS satelital como covariable adicional.
 #   · ECMWF / Copernicus → ERA5-Land (humedad de suelo, evapotranspiración PET).
 #   · NOAA     → índices ENSO (ONI global y Niño costero, ERSSTv5). Sin logo:
 #                degrada a etiqueta tipográfica.
@@ -2607,8 +2607,8 @@ FUENTES_LOGOS = [
      "ANA", "Caudal observado y red hidrométrica (SNIRH)"),
     ("logo_senamhi", "SENAMHI / IGP — Meteorología e Hidrología",
      "SENAMHI · IGP",
-     "PISCOp v2.1 (precipitación) y PISCOt v1.2 (temperatura Tmax/Tmin); "
-     "extensión CHIRPS-QM (2016+)"),
+     "PISCOp v3.0 (precipitación, 1981–2025) y PISCOt v1.2 (temperatura "
+     "Tmax/Tmin); CHIRPS satelital como covariable adicional"),
     ("logo_ecmwf", "ECMWF / Copernicus — Centro Europeo de Predicción",
      "ECMWF · Copernicus",
      "ERA5-Land: humedad de suelo y evapotranspiración de referencia (PET)"),
@@ -4015,9 +4015,10 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           <span class="fu-v">ANA — caudal observado y red hidrométrica (SNIRH);
           estación {est['nombre']}, código {est['codigo']}.</span></li>
         <li><span class="fu-k">Precipitación y temperatura</span>
-          <span class="fu-v">SENAMHI / IGP — <b>PISCOp v2.1</b> (precipitación) y
-          <b>PISCOt v1.2</b> (temperatura Tmax/Tmin); extensión CHIRPS-QM
-          (2016+).</span></li>
+          <span class="fu-v">SENAMHI / IGP — <b>PISCOp v3.0</b> (precipitación,
+          1981–2025; Gutierrez &amp; Lavado-Casimiro, 2025) y <b>PISCOt v1.2</b>
+          (temperatura Tmax/Tmin); CHIRPS satelital como covariable
+          adicional.</span></li>
         <li><span class="fu-k">Humedad de suelo y PET</span>
           <span class="fu-v">ECMWF / Copernicus — ERA5-Land (humedad de suelo,
           evapotranspiración de referencia PET).</span></li>
