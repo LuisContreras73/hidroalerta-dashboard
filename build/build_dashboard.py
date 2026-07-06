@@ -863,7 +863,9 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
 
     Fullscreen(title="Pantalla completa",
                title_cancel="Salir", position="topleft").add_to(m)
-    folium.LayerControl(collapsed=True, position="topright").add_to(m)
+    # Expandido por defecto: plegado, el usuario promedio nunca descubre que hay
+    # capas activables (red de drenaje, glaciares, clima, cobertura).
+    folium.LayerControl(collapsed=False, position="topright").add_to(m)
 
     # Ajusta el encuadre al límite de la cuenca, ampliado para no recortar
     # ninguna estación/laguna que caiga fuera del contorno.
@@ -1377,44 +1379,102 @@ def construir_excedencia(fcast: pd.DataFrame):
 
 
 def construir_minimapa() -> str:
-    """Inset cartográfico clásico (submapa de ubicación) en la esquina del mapa:
-    recuadro con la silueta del Perú (INEI disuelto) y el rectángulo rojo que
-    marca la extensión del mapa principal (bounds reales de terrain_meta.json).
-    SVG inline; overlay sin interacción sobre el iframe."""
+    """Submapa de ubicación con convenciones cartográficas de atlas: marco doble
+    (neatline) con ticks de retícula cada 4°, océano diferenciado, país con
+    límites departamentales (INEI, simplificado a escala del inset — script 159),
+    Lima como referencia, rectángulo rojo de extensión del mapa principal
+    (bounds reales), escala gráfica y norte. SVG inline ~12 KB, sin interacción."""
     import math
     try:
-        coords = json.loads((DATA / "peru_outline.json").read_text(encoding="utf-8"))["coords"]
+        loc = json.loads((DATA / "peru_locator.json").read_text(encoding="utf-8"))
+        coast, deps = loc["coast"], loc["deps"]
         bw, bs_, be, bn = json.loads((DATA / "terrain_meta.json").read_text(encoding="utf-8"))["bounds"]
     except Exception:
         return ""
-    lats = [c[0] for c in coords]; lngs = [c[1] for c in coords]
-    la0, la1 = min(lats), max(lats); lo0, lo1 = min(lngs), max(lngs)
+    lats = [c[0] for c in coast]; lngs = [c[1] for c in coast]
+    la0, la1 = min(lats) - 0.4, max(lats) + 0.4
+    lo0, lo1 = min(lngs) - 0.5, max(lngs) + 0.5
     kx = math.cos(math.radians((la0 + la1) / 2))
-    W = 96.0                                            # ancho útil del país
-    H = W * (la1 - la0) / ((lo1 - lo0) * kx)            # ≈ 141 px (Perú es alargado)
-    PAD = 8.0
+    W = 108.0
+    H = W * (la1 - la0) / ((lo1 - lo0) * kx)               # ≈ 156 px
+    M = 7.0                                                 # margen del marco
     def xy(lat, lng):
-        return (PAD + (lng - lo0) / (lo1 - lo0) * W,
-                PAD + (la1 - lat) / (la1 - la0) * H)
-    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (xy(a, b) for a, b in coords))
-    # rectángulo de extensión del mapa principal (mínimo 9 px para que se lea)
+        return (M + (lng - lo0) / (lo1 - lo0) * W,
+                M + (la1 - lat) / (la1 - la0) * H)
+    def poly(cc):
+        return " ".join(f"{x:.1f},{y:.1f}" for x, y in (xy(a, b) for a, b in cc))
+    peru = poly(coast)
+    dep_paths = "".join(
+        f'<polyline points="{poly(ln)}"/>' for ln in deps if len(ln) > 1)
+    # extensión del mapa principal (mínimo 8 px para legibilidad)
     x0, y0 = xy(bn, bw); x1, y1 = xy(bs_, be)
-    rw, rh = max(x1 - x0, 9.0), max(y1 - y0, 9.0)
+    rw, rh = max(x1 - x0, 8.0), max(y1 - y0, 8.0)
     rcx, rcy = (x0 + x1) / 2, (y0 + y1) / 2
-    SW, SH = W + 2 * PAD, H + 2 * PAD
+    lx, ly = xy(-12.046, -77.043)                           # Lima (referencia)
+    # ticks de retícula cada 4° sobre el marco interior
+    tk = ""
+    for lng in range(-80, -67, 4):
+        if lo0 < lng < lo1:
+            tx, _ = xy(la1, lng)
+            tk += (f'<line x1="{tx:.1f}" y1="{M:.0f}" x2="{tx:.1f}" y2="{M + 3:.0f}"/>'
+                   f'<line x1="{tx:.1f}" y1="{M + H:.1f}" x2="{tx:.1f}" y2="{M + H - 3:.1f}"/>')
+    for lat in range(-16, 1, 4):
+        if la0 < lat < la1:
+            _, ty = xy(lat, lo0)
+            tk += (f'<line x1="{M:.0f}" y1="{ty:.1f}" x2="{M + 3:.0f}" y2="{ty:.1f}"/>'
+                   f'<line x1="{M + W:.1f}" y1="{ty:.1f}" x2="{M + W - 3:.1f}" y2="{ty:.1f}"/>')
+    # escala gráfica: 400 km en dos tramos (px por km a la latitud media)
+    km_px = W / ((lo1 - lo0) * 111.32 * kx)
+    seg = 200 * km_px
+    sx, sy = M + 5, M + H - 8
+    SW, SH = W + 2 * M, H + 2 * M
     return f"""
           <figure class="minimapa" aria-label="Submapa de ubicación: la cuenca en el Perú">
-            <svg viewBox="0 0 {SW:.0f} {SH:.0f}" width="104" role="img"
+            <svg viewBox="0 0 {SW:.0f} {SH:.0f}" width="126" role="img"
                  aria-hidden="true" focusable="false">
-              <rect x="0.5" y="0.5" width="{SW - 1:.0f}" height="{SH - 1:.0f}" rx="6"
-                    fill="#FFFFFF" fill-opacity="0.96" stroke="#C7D3DB" stroke-width="1"/>
-              <polygon points="{pts}" fill="#E3EBF0" stroke="#8FA6B2"
-                       stroke-width="1" stroke-linejoin="round"/>
-              <rect x="{rcx - rw / 2:.1f}" y="{rcy - rh / 2:.1f}" width="{rw:.1f}"
-                    height="{rh:.1f}" fill="rgba(192,57,43,.18)" stroke="#C0392B"
-                    stroke-width="1.6"/>
-              <text x="{PAD + 4:.0f}" y="{SH - 7:.0f}" font-family="IBM Plex Mono,monospace"
-                    font-size="9" letter-spacing="1.5" fill="#5B6B78">PER&#218;</text>
+              <!-- océano + marco doble (neatline) -->
+              <rect x="0.5" y="0.5" width="{SW - 1:.0f}" height="{SH - 1:.0f}" rx="3"
+                    fill="#F3F8FB" stroke="#5B6B78" stroke-width="1.1"/>
+              <rect x="{M:.0f}" y="{M:.0f}" width="{W:.0f}" height="{H:.0f}"
+                    fill="#DDEBF3" stroke="#8FA6B2" stroke-width="0.7"/>
+              <g stroke="#8FA6B2" stroke-width="0.7">{tk}</g>
+              <clipPath id="mmwin"><rect x="{M:.0f}" y="{M:.0f}" width="{W:.0f}" height="{H:.0f}"/></clipPath>
+              <g clip-path="url(#mmwin)">
+                <!-- país: relleno tierra + departamentos + costa -->
+                <polygon points="{peru}" fill="#FBF8F1" stroke="none"/>
+                <g fill="none" stroke="#B9C6CF" stroke-width="0.65">{dep_paths}</g>
+                <polygon points="{peru}" fill="none" stroke="#66798A"
+                         stroke-width="1.05" stroke-linejoin="round"/>
+                <!-- Lima (referencia) -->
+                <circle cx="{lx:.1f}" cy="{ly:.1f}" r="1.9" fill="#0C1E2A"/>
+                <text x="{lx - 3.5:.1f}" y="{ly + 6.5:.1f}" font-family="IBM Plex Sans,sans-serif"
+                      font-size="7.2" fill="#42525E" text-anchor="end">Lima</text>
+                <!-- extensión del mapa principal -->
+                <rect x="{rcx - rw / 2:.1f}" y="{rcy - rh / 2:.1f}" width="{rw:.1f}"
+                      height="{rh:.1f}" fill="rgba(192,57,43,.16)" stroke="#C0392B"
+                      stroke-width="1.5"/>
+                <!-- océano rotulado -->
+                <text x="{M + 8:.0f}" y="{M + H * 0.56:.0f}" font-family="IBM Plex Sans,sans-serif"
+                      font-size="6.8" font-style="italic" fill="#7593A4"
+                      transform="rotate(-52 {M + 8:.0f} {M + H * 0.56:.0f})">OC&#201;ANO&#160;&#160;PAC&#205;FICO</text>
+              </g>
+              <!-- título, norte y escala -->
+              <text x="{M + 4:.0f}" y="{M + 10:.0f}" font-family="IBM Plex Mono,monospace"
+                    font-size="8.5" letter-spacing="1.8" font-weight="600"
+                    fill="#33414C">PER&#218;</text>
+              <g transform="translate({M + W - 8:.0f},{M + 13:.0f})" fill="#33414C">
+                <path d="M0 3 L2.6 8 L0 6.6 L-2.6 8 Z" transform="rotate(180)"/>
+                <text x="0" y="-5.5" font-family="IBM Plex Sans,sans-serif" font-size="6.5"
+                      text-anchor="middle">N</text>
+              </g>
+              <g font-family="IBM Plex Sans,sans-serif" font-size="5.8" fill="#42525E">
+                <rect x="{sx:.1f}" y="{sy:.1f}" width="{seg:.1f}" height="2.6"
+                      fill="#33414C"/>
+                <rect x="{sx + seg:.1f}" y="{sy:.1f}" width="{seg:.1f}" height="2.6"
+                      fill="#FFFFFF" stroke="#33414C" stroke-width="0.5"/>
+                <text x="{sx:.1f}" y="{sy - 2:.1f}">0</text>
+                <text x="{sx + 2 * seg:.1f}" y="{sy - 2:.1f}" text-anchor="end">400 km</text>
+              </g>
             </svg>
             <figcaption class="mm-cap">Ubicaci&#243;n</figcaption>
           </figure>"""
