@@ -220,8 +220,8 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
         "exag": 2.4,             # exageración vertical del relieve (suave, cuenca tallada)
         "tex": {
             "dem": "media/terrain/dem_rgb.png",
-            "satellite": "media/terrain/satellite.png",
-            "relief": "media/terrain/relief.png",
+            "satellite": "media/terrain/satellite.webp",
+            "relief": "media/terrain/relief.webp",
         },
         "col": {"accent": "#0B6E8C", "deep": "#0A3D54", "cyan": "#1BA8C4",
                 "crit": "#C0392B", "warn": "#D68910", "ok": "#2E8B6F",
@@ -239,7 +239,7 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
       <div class="sm-stage" aria-hidden="true">
         <div id="sm-deck" class="sm-deck"></div>
         <div id="sm-globe" class="sm-globe"></div>
-        <img class="sm-fallback" id="sm-fallback" alt="" src="media/terrain/relief.png">
+        <img class="sm-fallback" id="sm-fallback" alt="" src="media/terrain/relief.webp">
         <div class="sm-vignette"></div>
 
         <!-- HUD: título de capítulo (sincronizado por JS) + brújula/atribución. -->
@@ -629,12 +629,12 @@ JS = r"""
   var SUBLAB={ precip:'Precipitación',temp:'Temperatura', suelo:'Humedad de suelo',nieve:'Nieve',veg:'Vegetación' };
   // Exploded layer stack (visualización estratificada de las fuentes de datos que integra el modelo).
   var STACK=[
-    {img:'media/terrain/relief.png', lab:'Relieve'},
-    {img:'media/terrain/rios.png',   lab:'Red hídrica'},
-    {img:'media/clima/precip_03.png',lab:'Precipitación'},
-    {img:'media/clima/temp_03.png',  lab:'Temperatura'},
-    {img:'media/era5/suelo_03.png',  lab:'Humedad de suelo'},
-    {img:'media/era5/veg_01.png',    lab:'Vegetación'}
+    {img:'media/terrain/relief.webp', lab:'Relieve'},
+    {img:'media/terrain/rios.webp',   lab:'Red hídrica'},
+    {img:'media/clima/precip_03.webp',lab:'Precipitación'},
+    {img:'media/clima/temp_03.webp',  lab:'Temperatura'},
+    {img:'media/era5/suelo_03.webp',  lab:'Humedad de suelo'},
+    {img:'media/era5/veg_01.webp',    lab:'Vegetación'}
   ];
   var SEP=8500, GAP=350;   // separación (m) entre planos a spread=1, y colchón mínimo
 
@@ -662,9 +662,9 @@ JS = r"""
   }
   function currentTexture(){
     var p=null;
-    if(tl.kind==='clima')       p='media/clima/'+tl.sub+'_'+pad(tl.idx+1)+'.png';
-    else if(tl.kind==='era5')   p='media/era5/'+tl.sub+'_'+pad(tl.idx+1)+'.png';
-    else if(tl.kind==='evento') p='media/evento/pr_'+pad(tl.idx)+'.png';
+    if(tl.kind==='clima')       p='media/clima/'+tl.sub+'_'+pad(tl.idx+1)+'.webp';
+    else if(tl.kind==='era5')   p='media/era5/'+tl.sub+'_'+pad(tl.idx+1)+'.webp';
+    else if(tl.kind==='evento') p='media/evento/pr_'+pad(tl.idx)+'.webp';
     else { texCur=null; return scene.tex==='relief'? TEX.relief : TEX.satellite; }
     if(texCur===null){ texCur=p; }
     else if(p!==texCur){ setDrapeTex(p); }
@@ -891,6 +891,9 @@ JS = r"""
         .bumpImageUrl(BASE_IMG+'earth-topology.png')          // relieve real (Andes)
         .backgroundImageUrl(BASE_IMG+'night-sky.png')         // campo de estrellas (profundidad)
         .showAtmosphere(true).atmosphereColor('#5AC8E6').atmosphereAltitude(0.25)
+        .pathsData(D.peru? [D.peru.coords] : [])            // contorno del Perú (personal)
+        .pathColor(function(){return 'rgba(122,224,252,0.85)';}).pathStroke(1.6)
+        .pathPointAlt(0.004).pathDashLength(1).pathDashGap(0).pathTransitionDuration(0)
         .ringsData([BASIN]).ringColor(function(){return function(t){return 'rgba(53,200,232,'+(1-t)+')';};})
         .ringMaxRadius(5).ringPropagationSpeed(2.4).ringRepeatPeriod(1100)
         .pointsData([BASIN]).pointColor(function(){return '#35C8E8';})

@@ -850,8 +850,8 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
     lc_leg = []
     try:
         _lcm = json.loads((DATA / "landcover_meta.json").read_text(encoding="utf-8"))
-        _lcuri = ("data:image/png;base64,"
-                  + base64.b64encode((DOCS / "media/terrain/landcover.png").read_bytes()).decode())
+        _lcuri = ("data:image/webp;base64,"
+                  + base64.b64encode((DOCS / "media/terrain/landcover.webp").read_bytes()).decode())
         _glc = folium.FeatureGroup(name="Cobertura / uso de suelo", show=False)
         folium.raster_layers.ImageOverlay(
             image=_lcuri, bounds=_lcm["bounds"], opacity=0.80, zindex=1).add_to(_glc)
@@ -6293,6 +6293,7 @@ def main():
         "puntos":    json.loads((DATA / "puntos.geojson").read_text(encoding="utf-8")),
         "rios_nombres": json.loads((DATA / "sm_rios_nombres.geojson").read_text(encoding="utf-8")),
         "trips":     json.loads((DATA / "sm_trips.json").read_text(encoding="utf-8")),
+        "peru":      json.loads((DATA / "peru_outline.json").read_text(encoding="utf-8")),
         "niveles":   [{"n": n, "c": c, "u": u, "hex": hx} for n, c, u, _t, hx in NIVELES_ALERTA],
         "q90":       UMBRAL_Q90,
     }
