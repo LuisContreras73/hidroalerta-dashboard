@@ -228,6 +228,10 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
                 "ink": "#0C1E2A", "paper": "#F7F9FB"},
     }
     cfg_json = json.dumps(cfg, ensure_ascii=False)
+    # 9 fichas de subcuenca; las 3 de cabecera (>4 000 m) resaltadas en cian.
+    sm_sub_dots = "".join(
+        f'<rect x="{i*21}" y="2" width="16" height="12" rx="2" '
+        f'fill="{"#35C8E8" if i < 3 else "#3A5666"}"></rect>' for i in range(9))
 
     return f"""
     <div class="sm-immersive" aria-label="Recorrido inmersivo: el viaje del agua">
@@ -304,16 +308,36 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
         <!-- Puntos de progreso: un punto clicable por capítulo (los construye el JS). -->
         <nav class="sm-dots" id="sm-dots" aria-label="Capítulos del recorrido"></nav>
 
-        <!-- Cifras grandes del cap. 02 (fuera de la tarjeta, a la derecha de la cuenca). -->
-        <div class="sm-bigstats" id="sm-bigstats" hidden aria-label="Cifras de la cuenca">
-          <div class="sm-big"><span class="sm-big-n mono">3 063</span>
-            <span class="sm-big-l">km² de cuenca</span></div>
-          <div class="sm-big"><span class="sm-big-n mono">9</span>
-            <span class="sm-big-l">subcuencas</span></div>
-          <div class="sm-big"><span class="sm-big-n mono">122<small> km</small></span>
-            <span class="sm-big-l">de río principal</span></div>
-          <div class="sm-big"><span class="sm-big-n mono">0–5 242<small> m</small></span>
-            <span class="sm-big-l">de desnivel al mar</span></div>
+        <!-- Ficha de la cuenca (cap. 02): cada cifra con su micro-visual y su porqué;
+             el perfil del río lo dibuja el JS con los datos reales del DEM. -->
+        <div class="sm-bigstats" id="sm-bigstats" hidden aria-label="La cuenca en números">
+          <p class="sm-bs-eyebrow">La cuenca en números</p>
+
+          <div class="sm-bs-row">
+            <div class="sm-bs-head"><span class="sm-big-n mono">3&#8239;063</span><span class="sm-big-u">km²</span></div>
+            <svg class="sm-bs-viz" viewBox="0 0 210 26" preserveAspectRatio="none" aria-hidden="true">
+              <rect x="0" y="2" width="190" height="8" rx="2" fill="#35C8E8"></rect>
+              <rect x="0" y="15" width="166" height="8" rx="2" fill="#5B7686"></rect>
+            </svg>
+            <p class="sm-bs-say">mayor que toda la <b>provincia de Lima</b> (2&#8239;672 km²)</p>
+          </div>
+
+          <div class="sm-bs-row">
+            <div class="sm-bs-head"><span class="sm-big-n mono">9</span><span class="sm-big-u">subcuencas</span></div>
+            <svg class="sm-bs-viz" viewBox="0 0 190 16" aria-hidden="true">{sm_sub_dots}</svg>
+            <p class="sm-bs-say">las <b>3</b> más altas concentran el <b>56&#8239;%</b> del agua</p>
+          </div>
+
+          <div class="sm-bs-row">
+            <div class="sm-bs-head"><span class="sm-big-n mono">122</span><span class="sm-big-u">km de río</span></div>
+            <svg class="sm-bs-viz sm-bs-perfil" id="sm-perfil-spark" viewBox="0 0 190 44"
+                 preserveAspectRatio="none" aria-hidden="true">
+              <defs><linearGradient id="pfg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#35C8E8" stop-opacity="0.4"></stop>
+                <stop offset="1" stop-color="#35C8E8" stop-opacity="0"></stop></linearGradient></defs>
+            </svg>
+            <p class="sm-bs-say">cae <b>4&#8239;833 m</b> desde la cabecera andina hasta el Pacífico</p>
+          </div>
         </div>
 
         <!-- Pista de scroll (desaparece tras el primer avance). -->
@@ -453,23 +477,35 @@ CSS = r"""
 .sm-dot:hover{border-color:#7FD3E3;transform:scale(1.25);}
 .sm-dot.is-on{background:#35C8E8;border-color:#35C8E8;box-shadow:0 0 8px rgba(53,200,232,.6);}
 @media (max-width:760px){.sm-dots{display:none;}}
-/* Cifras grandes del cap. 02: tipografía como protagonista, fuera de la tarjeta. */
-.sm-bigstats{position:absolute;right:clamp(40px,7vw,120px);top:50%;transform:translateY(-50%);
-  z-index:3;display:flex;flex-direction:column;gap:clamp(14px,2.6vh,26px);text-align:right;
-  pointer-events:none;}
-.sm-big{opacity:0;transform:translateX(18px);animation:sm-big-in .7s ease forwards;}
-.sm-big:nth-child(2){animation-delay:.15s;}
-.sm-big:nth-child(3){animation-delay:.30s;}
-.sm-big:nth-child(4){animation-delay:.45s;}
-@keyframes sm-big-in{to{opacity:1;transform:none;}}
-@media (prefers-reduced-motion:reduce){.sm-big{animation:none;opacity:1;transform:none;}}
-.sm-big-n{display:block;font-size:clamp(30px,4.6vw,58px);font-weight:700;color:#EAF6FB;
-  line-height:1;letter-spacing:-.01em;text-shadow:0 2px 22px rgba(4,14,20,.85),0 0 2px rgba(4,14,20,.9);}
-.sm-big-n small{font-size:.45em;font-weight:500;color:#9fc5d2;}
-.sm-big-l{display:block;font-family:var(--sans,sans-serif);font-size:clamp(10px,1vw,12.5px);
-  letter-spacing:.12em;text-transform:uppercase;color:#a8c6d2;margin-top:5px;
+/* Ficha de la cuenca (cap. 02): cifra grande + micro-visual + porqué. No es una
+   caja dura: vidrio muy tenue con filo de acento a la izquierda, tipografía manda. */
+.sm-bigstats{position:absolute;right:clamp(28px,5vw,88px);top:50%;transform:translateY(-50%);
+  z-index:3;width:clamp(280px,26vw,360px);display:flex;flex-direction:column;
+  gap:16px;padding:20px 22px 20px 24px;border-radius:16px;pointer-events:none;
+  background:linear-gradient(150deg,rgba(7,20,29,.42),rgba(7,20,29,.10));
+  border-left:2px solid rgba(53,200,232,.5);
+  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);}
+.sm-bs-eyebrow{font-family:var(--sans,sans-serif);font-size:10.5px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:#35C8E8;margin:0 0 2px;
   text-shadow:0 1px 10px rgba(4,14,20,.9);}
-@media (max-width:900px){.sm-bigstats{display:none;}}
+.sm-bs-row{opacity:0;transform:translateX(14px);animation:sm-big-in .7s ease forwards;
+  padding-top:13px;border-top:1px solid rgba(150,190,205,.16);}
+.sm-bs-row:first-of-type{border-top:0;padding-top:0;}
+.sm-bs-row:nth-of-type(2){animation-delay:.14s;}
+.sm-bs-row:nth-of-type(3){animation-delay:.28s;}
+.sm-bs-row:nth-of-type(4){animation-delay:.42s;}
+@keyframes sm-big-in{to{opacity:1;transform:none;}}
+@media (prefers-reduced-motion:reduce){.sm-bs-row{animation:none;opacity:1;transform:none;}}
+.sm-bs-head{display:flex;align-items:baseline;gap:8px;}
+.sm-big-n{font-size:clamp(30px,4.2vw,50px);font-weight:700;color:#EAF6FB;line-height:1;
+  letter-spacing:-.01em;text-shadow:0 2px 22px rgba(4,14,20,.9),0 0 2px rgba(4,14,20,.95);}
+.sm-big-u{font-family:var(--sans,sans-serif);font-size:13px;font-weight:500;color:#9fc5d2;}
+.sm-bs-viz{display:block;width:100%;height:22px;margin:8px 0 6px;overflow:visible;}
+.sm-bs-perfil{height:38px;}
+.sm-bs-say{font-family:var(--sans,sans-serif);font-size:12.5px;line-height:1.5;
+  color:#c3d7e0;margin:0;text-shadow:0 1px 8px rgba(4,14,20,.85);}
+.sm-bs-say b{color:#EAF6FB;font-weight:600;}
+@media (max-width:960px){.sm-bigstats{display:none;}}
 @media (prefers-reduced-motion:reduce){.sm-spin-btn.is-on .sm-spin-ico{animation:none;}}
 .sm-scroll-hint{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);z-index:3;
   display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11.5px;
@@ -1062,7 +1098,22 @@ JS = r"""
     var dots=document.querySelectorAll('.sm-dot');
     dots.forEach(function(d){ d.classList.toggle('is-on', d.getAttribute('data-cap')===id); });
   }
+  // Perfil longitudinal REAL del río (cabecera→mar) como sparkline de la ficha cap.02.
+  function buildPerfil(){
+    var el=$('sm-perfil-spark'); if(!el || !D.terrain || !D.terrain.perfil) return;
+    var pf=D.terrain.perfil, W=190, H=44, pad=3;
+    var xmax=pf[pf.length-1][0]||1, ys=pf.map(function(p){return p[1];});
+    var ymin=Math.min.apply(null,ys), ymax=Math.max.apply(null,ys), rng=(ymax-ymin)||1;
+    function X(d){return (d/xmax*W).toFixed(1);}
+    function Y(e){return (H-pad-(e-ymin)/rng*(H-2*pad)).toFixed(1);}
+    var line=pf.map(function(p){return X(p[0])+','+Y(p[1]);}).join(' ');
+    el.insertAdjacentHTML('beforeend',
+      '<polygon points="0,'+H+' '+line+' '+W+','+H+'" fill="url(#pfg)"></polygon>'+
+      '<polyline points="'+line+'" fill="none" stroke="#7FD3E3" stroke-width="1.6"'+
+      ' vector-effect="non-scaling-stroke"></polyline>');
+  }
   function buildDots(){
+    buildPerfil();
     var wrap=$('sm-dots'); if(!wrap) return;
     document.querySelectorAll('.sm-step').forEach(function(st){
       var id=st.getAttribute('data-cap');
