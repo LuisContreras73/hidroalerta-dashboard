@@ -312,6 +312,20 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
         </button>
         <div class="sm-drag-hint" id="sm-drag-hint" aria-hidden="true">Arrastre para rotar · rueda del ratón bloqueada</div>
 
+        <!-- Ocultar/mostrar tarjetas de texto: para contemplar el 3D sin estorbos.
+             También se auto-oculta durante «Volar el río» y se restaura al parar. -->
+        <button type="button" class="sm-hide-btn" id="sm-hide-btn" hidden
+                aria-pressed="false" aria-label="Ocultar o mostrar las tarjetas de texto">
+          <span class="sm-hide-ico" aria-hidden="true">&#128065;</span>
+          <span id="sm-hide-lab">Ocultar texto</span>
+        </button>
+
+        <!-- Leyenda contextual: qué significa cada símbolo de la escena (la llena el JS). -->
+        <div class="sm-key" id="sm-key" hidden aria-label="Leyenda de la escena"></div>
+
+        <!-- Aviso CTA de una sola vez (p. ej. «pruebe Volar el río»). -->
+        <div class="sm-cta-tip" id="sm-cta-tip" hidden aria-hidden="true"></div>
+
         <!-- Puntos de progreso: un punto clicable por capítulo (los construye el JS). -->
         <!-- «El hilo del agua» v3: geometría fluvial real (Leopold & Maddock 1953:
              w∝Q^0.5; Leopold & Wolman 1960: λ≈10,9·w, A≈2,7·w^1.1) atravesando la
@@ -518,6 +532,39 @@ CSS = r"""
 .sm-spin-ico{font-size:16px;color:var(--cyan,#1BA8C4);display:inline-block;}
 .sm-spin-btn.is-on .sm-spin-ico{animation:sm-rot 2.2s linear infinite;}
 @keyframes sm-rot{to{transform:rotate(360deg);}}
+.sm-hide-btn{position:absolute;left:36px;bottom:24px;z-index:6;
+  display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  font-family:var(--sans,sans-serif);font-size:12.5px;color:#eaf2f6;padding:8px 15px;
+  border-radius:999px;background:rgba(9,22,31,.72);backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);border:1px solid rgba(120,170,190,.30);
+  box-shadow:0 8px 26px rgba(0,0,0,.38);transition:.18s;}
+.sm-hide-btn:hover{background:rgba(16,38,50,.85);border-color:rgba(27,168,196,.55);}
+.sm-hide-btn.is-on{background:rgba(11,110,140,.55);border-color:rgba(27,168,196,.7);}
+.sm-hide-ico{font-size:13px;}
+/* tarjetas fuera: el 3D manda (el hilo del agua y sus nodos siguen siendo la navegación) */
+.sm-immersive.sm-cards-off .sm-card{opacity:0!important;pointer-events:none!important;}
+.sm-immersive.sm-cards-off .sm-bigstats{opacity:0;pointer-events:none;}
+.sm-bigstats{transition:opacity .4s ease;}
+.sm-key{position:absolute;left:36px;bottom:70px;z-index:4;max-width:250px;
+  display:flex;flex-direction:column;gap:6px;padding:10px 13px 11px;border-radius:12px;
+  background:rgba(9,22,31,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid rgba(120,170,190,.30);box-shadow:0 8px 26px rgba(0,0,0,.34);}
+.sm-key-t{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:rgba(53,200,232,.9);margin:0 0 1px;}
+.sm-key-i{display:flex;align-items:center;gap:9px;font-size:11.5px;color:#DBE8EF;line-height:1.35;}
+.sm-key-i svg{flex:0 0 auto;display:block;}
+.sm-cta{animation:smcta 2s ease-out 3;}
+@keyframes smcta{0%{box-shadow:0 0 0 0 rgba(53,200,232,.55);}
+  100%{box-shadow:0 0 0 18px rgba(53,200,232,0);}}
+.sm-cta-tip{position:absolute;right:118px;bottom:66px;z-index:6;max-width:250px;
+  font-size:12px;line-height:1.45;color:#EAF6FB;padding:9px 13px;border-radius:11px;
+  background:rgba(11,110,140,.92);border:1px solid rgba(53,200,232,.6);
+  box-shadow:0 8px 26px rgba(0,0,0,.4);opacity:0;transform:translateY(5px);
+  transition:opacity .45s ease,transform .45s ease;pointer-events:none;}
+.sm-cta-tip.is-on{opacity:1;transform:none;}
+@media (max-width:640px){.sm-key{display:none;}.sm-hide-btn{left:16px;}
+  .sm-cta-tip{right:16px;max-width:200px;}}
+@media (prefers-reduced-motion:reduce){.sm-cta{animation:none;}}
 .sm-drag-hint{position:absolute;right:20px;bottom:58px;z-index:4;font-size:10.5px;
   letter-spacing:.03em;color:rgba(214,228,236,.62);pointer-events:none;transition:opacity .5s;text-align:right;}
 .sm-immersive.is-moved .sm-drag-hint{opacity:0;}
@@ -537,7 +584,12 @@ CSS = r"""
 .sm-river-node:hover{stroke:#8FE3FF;}
 .sm-river-node.is-past{fill:#1BA8C4;stroke:#8FE3FF;}
 .sm-river-node.is-on{fill:#35C8E8;stroke:#EAF6FB;stroke-width:2;
-  filter:drop-shadow(0 0 6px rgba(53,200,232,.9));}
+  filter:drop-shadow(0 0 6px rgba(53,200,232,.9));
+  transform-box:fill-box;transform-origin:center;animation:smnodep 2.6s ease-in-out infinite;}
+.sm-river-node:hover{transform-box:fill-box;transform-origin:center;transform:scale(1.35);}
+@keyframes smnodep{0%,100%{transform:scale(1);}50%{transform:scale(1.22);}}
+@media (prefers-reduced-motion:reduce){.sm-river-node.is-on{animation:none;}
+  .sm-river-node:hover{transform:none;}}
 .sm-river-drop{fill:#EAF6FB;filter:drop-shadow(0 0 8px rgba(143,227,255,.95));
   transition:cx .25s linear,cy .25s linear;}
 @media (max-width:900px){.sm-river{display:none;}}
@@ -957,6 +1009,7 @@ JS = r"""
     FLY={pts:sm, brg:bs, n:sm.length};
   }
   function stopFly(back){
+    if(autoHid){ autoHid=false; setCards(false); }
     flyOn=false; if(flyRAF) cancelAnimationFrame(flyRAF); flyRAF=null;
     var fb=$('sm-fly-btn'); if(fb){ fb.classList.remove('is-on');
       fb.setAttribute('aria-pressed','false');
@@ -965,6 +1018,8 @@ JS = r"""
       tweenTo({longitude:v.longitude,latitude:v.latitude,zoom:v.zoom,pitch:sc.pitch||0,bearing:sc.bearing||0},1600); }
   }
   function startFly(){
+    hideCtaTip();
+    if(!cardsOff){ autoHid=true; setCards(true); }
     if(reduce) return; buildFly(); if(!FLY) return;
     stopOrbit(); spin=false; updateSpinBtn();
     flyOn=true; flyS=0; flyLast=performance.now();
@@ -1206,6 +1261,71 @@ JS = r"""
   }
 
   // ── Activar capítulo ──────────────────────────────────────────────────────
+  // ── Leyenda contextual por capítulo ──────────────────────────────────────
+  var rootEl=document.querySelector('.sm-immersive');
+  function kpin(c){ return '<svg width="12" height="15" viewBox="0 0 12 15"><path d="M6 14 C6 9.5 1 8.6 1 5.2 a5 5 0 0 1 10 0 C11 8.6 6 9.5 6 14Z" fill="'+c+'" stroke="#fff" stroke-width="1"/></svg>'; }
+  function ksw(k){
+    if(k==='rio')   return '<svg width="22" height="10" viewBox="0 0 22 10"><path d="M1 7 C6 2 10 8 15 4 L21 4" stroke="#35C8E8" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>';
+    if(k==='pulso') return '<svg width="22" height="10" viewBox="0 0 22 10"><circle cx="5" cy="5" r="2.6" fill="#B9EDFF"/><circle cx="12" cy="5" r="1.8" fill="rgba(185,237,255,.6)"/><circle cx="18" cy="5" r="1.2" fill="rgba(185,237,255,.35)"/></svg>';
+    if(k==='cab')   return '<svg width="16" height="12" viewBox="0 0 16 12"><path d="M1 11 L6 2 L9 7 L11 4.5 L15 11 Z" fill="#D68910" stroke="#fff" stroke-width=".8" stroke-linejoin="round"/></svg>';
+    if(k==='grad')  return '<svg width="24" height="10" viewBox="0 0 24 10"><defs><linearGradient id="smkg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#35C8E8"/><stop offset="1" stop-color="#0A3D54"/></linearGradient></defs><rect x="0" y="1" width="24" height="8" rx="2" fill="url(#smkg)"/></svg>';
+    if(k==='aforo') return kpin('#C0392B');
+    if(k==='meteo') return kpin('#2E8B6F');
+    if(k==='ciudad')return kpin('#0C1E2A');
+    return '';
+  }
+  var KEYS={
+    cuenca:   [['grad','Subcuencas por elevación: litoral (cian) a cabecera (azul profundo)']],
+    relieve:  [['rio','Red de ríos: el ancho sigue la jerarquía del cauce'],
+               ['pulso','Pulsos: el agua viajando hacia el mar']],
+    cabeceras:[['cab','Subcuenca de cabecera (> 4 000 m): donde nace el agua'],
+               ['aforo','Estación hidrométrica (mide caudal)'],
+               ['meteo','Estación meteorológica (lluvia y temperatura)'],
+               ['ciudad','Ciudad de Huaral'],
+               ['rio','Red de ríos']],
+    clima:    [['cab','Cabeceras: aquí cae la lluvia que llena el río'],
+               ['rio','Red de ríos']],
+    invisible:[['rio','Red de ríos']],
+    yaku:     [['aforo','Santo Domingo: el aforo que registró el evento'],
+               ['rio','Red de ríos'],
+               ['pulso','Pulsos: su velocidad sigue el caudal de cada día']],
+    alerta:   [['aforo','Estación de alerta (Santo Domingo)'],
+               ['meteo','Estaciones meteorológicas: los ojos aguas arriba'],
+               ['rio','Red de ríos']]
+  };
+  function setKey(id,s){
+    var k=$('sm-key'); if(!k) return;
+    var items=KEYS[id];
+    if(!items || s.globe || s.stack){ k.hidden=true; return; }
+    k.innerHTML='<p class="sm-key-t">Leyenda</p>'+items.map(function(it){
+      return '<div class="sm-key-i">'+ksw(it[0])+'<span>'+it[1]+'</span></div>'; }).join('');
+    k.hidden=false;
+  }
+  // ── Ocultar/mostrar tarjetas (manual + automático durante el vuelo) ───────
+  var cardsOff=false, autoHid=false;
+  function setCards(off){
+    cardsOff=off;
+    if(rootEl) rootEl.classList.toggle('sm-cards-off',off);
+    var hb=$('sm-hide-btn'); if(!hb) return;
+    hb.setAttribute('aria-pressed',off?'true':'false');
+    hb.classList.toggle('is-on',off);
+    var lb=$('sm-hide-lab'); if(lb) lb.textContent=off?'Mostrar texto':'Ocultar texto';
+  }
+  // ── CTA de una sola vez: invita a volar el río ────────────────────────────
+  var flyCta=false;
+  function hideCtaTip(){
+    var tip=$('sm-cta-tip'); if(!tip) return;
+    tip.classList.remove('is-on'); setTimeout(function(){ tip.hidden=true; },460);
+  }
+  function maybeFlyCta(){
+    if(flyCta) return; flyCta=true;
+    var flb=$('sm-fly-btn'); if(flb) flb.classList.add('sm-cta');
+    var tip=$('sm-cta-tip'); if(!tip) return;
+    tip.textContent='Pruebe «Volar el río»: la cámara desciende los 122 km del cauce, de la cabecera al mar.';
+    tip.hidden=false;
+    setTimeout(function(){ tip.classList.add('is-on'); },350);
+    setTimeout(hideCtaTip, 9000);
+  }
   function setScene(id){
     if(id===curCap) return; curCap=id;
     writeHash(id); updateDots(id); if(flyOn) stopFly(false);
@@ -1220,7 +1340,10 @@ JS = r"""
     // globo vs deck
     showGlobe(!!s.globe);
     var spb=$('sm-spin-btn'); if(spb) spb.hidden=!!s.globe;
-    var flb=$('sm-fly-btn'); if(flb) flb.hidden=!(s.rivers && !reduce);
+    var flb=$('sm-fly-btn'); if(flb){ flb.hidden=!(s.rivers && !reduce);
+      if(!flb.hidden) maybeFlyCta(); else hideCtaTip(); }
+    var hbtn=$('sm-hide-btn'); if(hbtn) hbtn.hidden=!!s.globe;
+    setKey(id,s);
     var bs=$('sm-bigstats'); if(bs) bs.hidden=!s.bigstats;
     if(s.globe){ hideControl(); $('sm-hydro').hidden=true; showPlots(false); orbit=false; stopOrbit(); updateSpinBtn(); if(hud) hud.classList.remove('is-on'); return; }
     // exploded layer stack (capas de datos que se separan y se integran)
@@ -1404,6 +1527,7 @@ JS = r"""
       if($('sm-stack-lab')) $('sm-stack-lab').textContent=(t>0.5?'Integrar capas':'Separar capas'); };
     var spb=$('sm-spin-btn'); if(spb) spb.onclick=toggleSpin;   // girar/detener la cuenca
     var flb2=$('sm-fly-btn'); if(flb2) flb2.onclick=toggleFly;  // volar/detener el río
+    var hb2=$('sm-hide-btn'); if(hb2) hb2.onclick=function(){ autoHid=false; setCards(!cardsOff); };
     // observer de capítulos
     obs=new IntersectionObserver(function(ents){
       ents.forEach(function(en){ if(en.isIntersecting){

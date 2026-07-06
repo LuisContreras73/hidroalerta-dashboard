@@ -1376,6 +1376,41 @@ def construir_excedencia(fcast: pd.DataFrame):
     return div, fecha
 
 
+def construir_minimapa() -> str:
+    """Mini-mapa localizador (SVG inline, ~3 KB): contorno de Perú con marcador
+    pulsante sobre la cuenca. Proyección equirrectangular con corrección cos(lat)
+    — suficiente a escala país. Contorno: INEI departamentos disueltos (303 vért.)."""
+    import math
+    try:
+        coords = json.loads((DATA / "peru_outline.json").read_text(encoding="utf-8"))["coords"]
+    except Exception:
+        return ""
+    lats = [c[0] for c in coords]; lngs = [c[1] for c in coords]
+    la0, la1 = min(lats), max(lats); lo0, lo1 = min(lngs), max(lngs)
+    kx = math.cos(math.radians((la0 + la1) / 2))          # compresión E-O
+    W = 150.0
+    H = W * (la1 - la0) / ((lo1 - lo0) * kx)
+    def xy(lat, lng):
+        return ((lng - lo0) / (lo1 - lo0) * W,
+                (la1 - lat) / (la1 - la0) * H)
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (xy(a, b) for a, b in coords))
+    bx, by = xy(-11.4, -76.9)                             # cuenca Chancay–Huaral
+    return f"""
+          <figure class="minimapa" aria-label="Ubicación de la cuenca en el Perú">
+            <svg viewBox="-6 -6 {W+12:.0f} {H+12:.0f}" width="132" role="img"
+                 aria-hidden="true" focusable="false">
+              <polygon points="{pts}" fill="#EAF3F7" stroke="#9FB8C4"
+                       stroke-width="1.1" stroke-linejoin="round"/>
+              <circle class="mm-ping" cx="{bx:.1f}" cy="{by:.1f}" r="5"
+                      fill="none" stroke="#0B6E8C" stroke-width="1.4"/>
+              <circle cx="{bx:.1f}" cy="{by:.1f}" r="3.2" fill="#0B6E8C"
+                      stroke="#fff" stroke-width="1.2"/>
+            </svg>
+            <figcaption class="mm-cap"><b>Aquí</b> — vertiente del Pacífico,
+            al norte de Lima</figcaption>
+          </figure>"""
+
+
 def construir_dominio_validez() -> str:
     """Cierre de Modelos: espectro de dominio de validez (qué herramienta manda en
     cada horizonte) + evidencia medida + plan de monitoreo operativo en plegable.
@@ -3169,6 +3204,16 @@ CSS_RESULTADOS = r"""
   color:#8494A0;font-size:13px;}
 @media (max-width:640px){.dex-dl{margin-left:0;}}
 
+/* ── Mini-mapa localizador (Resumen) ── */
+.minimapa{display:flex;align-items:center;gap:14px;margin:18px 0 0;padding:12px 14px;
+  border:1px solid #E2E8EE;border-radius:12px;background:#FBFDFE;max-width:340px;}
+.minimapa svg{flex:0 0 auto;display:block;}
+.mm-cap{font-size:12px;color:#5B6B78;line-height:1.55;}
+.mm-cap b{color:#0B6E8C;}
+.mm-ping{transform-origin:center;transform-box:fill-box;animation:mmping 2.4s ease-out infinite;}
+@keyframes mmping{0%{transform:scale(.5);opacity:.9}70%{transform:scale(1.8);opacity:0}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.mm-ping{animation:none;opacity:.5}}
+
 /* ── Espectro de dominio de validez (Modelos) ── */
 .dom{display:flex;gap:6px;margin-top:14px;}
 .dom-seg{display:flex;flex-direction:column;gap:5px;padding:14px 15px 12px;
@@ -3306,7 +3351,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               recorrido_div, resultados_html, protocolo_html, explorador_div="",
               eventos_div="", dotplot_div="", espagueti_div="",
               excedencia_html="", panel_hoy_html="", radar_div="", cdf_div="",
-              dominio_html="") -> str:
+              dominio_html="", minimapa_html="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3543,15 +3588,18 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       <section class="mapa-sec reveal" aria-label="Mapa de la cuenca">
         <div class="mapa-caption">
           <p class="eyebrow">01 · Cuenca y estación</p>
-          <h2 class="h-serif">La cuenca, de la costa a la cabecera andina</h2>
-          <p class="prose">Las {nsub} subcuencas se colorean por elevación, del
-          litoral (cian) a la cabecera de más de 4 500 m (azul profundo). La
-          estación {est['nombre']} (código {est['codigo']}) marca la salida de una
-          cuenca de {area:,.0f} km².</p>
-          <p class="prose">Active las capas (subcuencas, ríos, estaciones y
-          cuerpos de agua) y haga clic en cada estación para ver su
-          <b>climatología mensual</b> —precipitación o caudal— junto con altitud,
-          período y valores medios.</p>
+          <h2 class="h-serif">La cuenca: desde la costa hasta la cabecera andina</h2>
+          <p class="prose">Las nueve subcuencas se representan según su elevación,
+          desde el litoral (cian) hasta las cabeceras por encima de los
+          4 500 m s. n. m. (azul oscuro). La estación automática
+          {est['nombre'].replace(' (Automática)', '')} (código {est['codigo']})
+          delimita la salida de una
+          cuenca con una superficie de 3 062,6 km².</p>
+          <p class="prose">Active las capas de subcuencas, ríos, estaciones y
+          cuerpos de agua. Luego haga clic en una estación para consultar su
+          <b>climatología mensual</b>, incluyendo precipitación o caudal, altitud,
+          período de registro y valores medios.</p>
+          {minimapa_html}
         </div>
         <div class="mapa-box">
           <iframe title="Mapa interactivo de la cuenca Chancay–Huaral"
@@ -6518,6 +6566,7 @@ def main():
     radar_div = construir_radar_modelos(metr)
     cdf_div = construir_cdf_errores(fcast)
     dominio_html = construir_dominio_validez()
+    minimapa_html = construir_minimapa()
     excedencia_html = f'''
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Del cuantil a la decisión</p>
@@ -6536,7 +6585,7 @@ def main():
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
                        recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div,
                        dotplot_div, espagueti_div, excedencia_html, panel_hoy_html,
-                       radar_div, cdf_div, dominio_html)
+                       radar_div, cdf_div, dominio_html, minimapa_html)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
