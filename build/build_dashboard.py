@@ -1491,9 +1491,10 @@ def tabla_metricas_html(metr: pd.DataFrame) -> str:
             first = False
     encabezado = "".join(f"<th>{c}</th>" for c in cols)
     return f"""
-    <p class="nota" style="margin-bottom:8px"><b>Evaluación:</b> entrenamiento hasta
-    2023 · <b>prueba independiente 2024–2025</b> (N ≈ 420–423 días con aforo por
-    horizonte). Chip = mejor valor del horizonte · fila resaltada = modelo propuesto.</p>
+    <p class="nota" style="margin-bottom:8px"><b>Evaluación:</b> entrenamiento
+    ≤ 2022 · validación 2023 (selección de hiperparámetros) · <b>prueba independiente
+    2024–2025</b> (N ≈ 420–423 días con aforo por horizonte). Chip = mejor valor del
+    horizonte · fila resaltada = modelo propuesto.</p>
     <div class="tabla-scroll">
     <table class="metricas">
       <thead><tr><th>Horizonte</th><th>Modelo</th>{encabezado}</tr></thead>
