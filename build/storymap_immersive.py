@@ -306,17 +306,30 @@ def recorrido_html(meta, leaderboard_div: str, forecast_div: str,
         <div class="sm-drag-hint" id="sm-drag-hint" aria-hidden="true">Arrastre para rotar · rueda del ratón bloqueada</div>
 
         <!-- Puntos de progreso: un punto clicable por capítulo (los construye el JS). -->
-        <!-- «El hilo del agua»: río-guía que serpentea y se dibuja con el scroll;
-             cada capítulo es un nodo clicable, la gota marca dónde vas. -->
+        <!-- «El hilo del agua» v2: río-ribbon (angosto en la cabecera, ancho al mar)
+             con afluentes, paisaje de la cuenca (nevado→lluvia→cultivo→valle→mar) que
+             se enciende al pasar el agua, nodos-capítulo y un brazo que desemboca en
+             la tarjeta activa. Lo dibuja el JS (buildRiver). -->
         <svg class="sm-river" id="sm-river" aria-label="El hilo del agua: capítulos del recorrido"
              xmlns="http://www.w3.org/2000/svg">
-          <defs><linearGradient id="riverwet" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#8FE3FF"></stop><stop offset="1" stop-color="#1BA8C4"></stop>
-          </linearGradient></defs>
-          <path class="sm-river-base" fill="none"></path>
-          <path class="sm-river-wet" fill="none"></path>
+          <defs>
+            <linearGradient id="riverwet" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#B9EDFF"></stop>
+              <stop offset="0.5" stop-color="#4FC6E4"></stop>
+              <stop offset="1" stop-color="#0E7FA0"></stop>
+            </linearGradient>
+            <clipPath id="riverclip"><rect id="sm-river-cliprect" x="-20" y="0" width="120" height="0"></rect></clipPath>
+          </defs>
+          <g clip-path="url(#riverclip)">
+            <g id="sm-river-tribs"></g>
+            <polygon id="sm-river-ribbon" fill="url(#riverwet)" opacity="0.9"></polygon>
+            <path class="sm-river-flow" id="sm-river-flow" fill="none"></path>
+          </g>
+          <path class="sm-river-base" id="sm-river-basep" fill="none"></path>
+          <path class="sm-river-arm" id="sm-river-arm" fill="none"></path>
+          <g id="sm-river-icons"></g>
           <g id="sm-river-nodes"></g>
-          <circle class="sm-river-drop" r="5.5" cx="-9" cy="-9"></circle>
+          <circle class="sm-river-drop" r="5" cx="-9" cy="-9"></circle>
         </svg>
 
         <!-- Ficha de la cuenca (cap. 02): cada cifra con su micro-visual y su porqué;
@@ -494,14 +507,17 @@ CSS = r"""
 .sm-drag-hint{position:absolute;right:20px;bottom:58px;z-index:4;font-size:10.5px;
   letter-spacing:.03em;color:rgba(214,228,236,.62);pointer-events:none;transition:opacity .5s;text-align:right;}
 .sm-immersive.is-moved .sm-drag-hint{opacity:0;}
-/* «El hilo del agua»: río-guía vertical, fijo en el escenario. */
-.sm-river{position:absolute;left:10px;top:0;width:40px;height:100%;z-index:5;overflow:visible;}
-.sm-river-base{stroke:rgba(140,200,220,.28);stroke-width:2.2;stroke-linecap:round;
-  stroke-dasharray:1.5 11;animation:sm-riverflow 2.6s linear infinite;}
-.sm-river-wet{stroke:url(#riverwet);stroke-width:3;stroke-linecap:round;
-  filter:drop-shadow(0 0 3px rgba(53,200,232,.55));}
-@keyframes sm-riverflow{to{stroke-dashoffset:-12.5;}}
-@media (prefers-reduced-motion:reduce){.sm-river-base{animation:none;}}
+/* «El hilo del agua» v2: río-ribbon con paisaje, fijo en el escenario. */
+.sm-river{position:absolute;left:6px;top:0;width:64px;height:100%;z-index:5;overflow:visible;}
+.sm-river-base{stroke:rgba(140,200,220,.22);stroke-width:1.6;stroke-linecap:round;
+  stroke-dasharray:2 9;}
+.sm-river-flow{stroke:rgba(235,250,255,.75);stroke-width:1.1;stroke-linecap:round;
+  stroke-dasharray:2 13;animation:sm-riverflow 2.2s linear infinite;
+  filter:drop-shadow(0 0 3px rgba(143,227,255,.6));}
+#sm-river-ribbon{filter:drop-shadow(0 0 4px rgba(53,200,232,.45));}
+.sm-river-trib{stroke:rgba(150,215,235,.55);stroke-width:1.2;stroke-linecap:round;fill:none;}
+@keyframes sm-riverflow{to{stroke-dashoffset:-15;}}
+@media (prefers-reduced-motion:reduce){.sm-river-flow{animation:none;}}
 .sm-river-node{fill:rgba(9,22,31,.85);stroke:rgba(140,200,220,.6);stroke-width:1.6;
   cursor:pointer;transition:.2s;}
 .sm-river-node:hover{stroke:#8FE3FF;}
@@ -510,7 +526,21 @@ CSS = r"""
   filter:drop-shadow(0 0 6px rgba(53,200,232,.9));}
 .sm-river-drop{fill:#EAF6FB;filter:drop-shadow(0 0 8px rgba(143,227,255,.95));
   transition:cx .25s linear,cy .25s linear;}
-@media (max-width:760px){.sm-river{display:none;}}
+/* brazo que desemboca en la tarjeta activa */
+.sm-river-arm{stroke:rgba(143,227,255,.8);stroke-width:1.8;stroke-linecap:round;
+  stroke-dasharray:3 5;animation:sm-riverflow 1.8s linear infinite;
+  filter:drop-shadow(0 0 3px rgba(53,200,232,.6));transition:opacity .4s;}
+/* paisaje de la cuenca: apagado → se enciende cuando el agua lo alcanza */
+.sm-river-icon{stroke:rgba(150,190,205,.45);fill:none;stroke-width:1.3;
+  stroke-linecap:round;stroke-linejoin:round;transition:stroke .5s,fill .5s,opacity .5s;opacity:.75;}
+.sm-river-icon .fill{fill:rgba(150,190,205,.25);stroke:none;}
+.sm-river-icon.is-past{stroke:#9FE0F5;opacity:1;
+  filter:drop-shadow(0 0 3px rgba(143,227,255,.55));}
+.sm-river-icon.is-past .fill{fill:rgba(234,246,251,.85);}
+.sm-river-icolab{font-family:var(--sans,sans-serif);font-size:7.5px;letter-spacing:.08em;
+  fill:rgba(168,198,210,.75);text-transform:uppercase;}
+.sm-river-icon.is-past + .sm-river-icolab, .sm-river-icolab.is-past{fill:#BFE5F2;}
+@media (max-width:900px){.sm-river{display:none;}}
 /* Ficha de la cuenca (cap. 02): cifra grande + micro-visual + porqué. No es una
    caja dura: vidrio muy tenue con filo de acento a la izquierda, tipografía manda. */
 .sm-bigstats{position:absolute;right:clamp(28px,5vw,88px);top:50%;transform:translateY(-50%);
@@ -557,7 +587,9 @@ CSS = r"""
   -webkit-backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(120,170,190,.24);
   box-shadow:0 18px 60px rgba(0,0,0,.5);
   opacity:.04;transform:translateY(26px) scale(.99);transition:opacity .6s ease,transform .6s ease;}
-.sm-step.is-active .sm-card{opacity:1;transform:none;}
+.sm-step.is-active .sm-card{opacity:1;transform:none;
+  border-left:2px solid rgba(83,208,238,.65);
+  box-shadow:0 18px 60px rgba(0,0,0,.5),-6px 0 22px -8px rgba(53,200,232,.5);}
 .sm-eyebrow{display:flex;align-items:center;gap:10px;font-family:var(--sans,sans-serif);
   font-size:11.5px;text-transform:uppercase;letter-spacing:.14em;color:var(--cyan,#1BA8C4);margin:0 0 12px;}
 .sm-num{font-family:var(--mono,'IBM Plex Mono',monospace);font-size:12px;color:#eaf2f6;
@@ -1164,23 +1196,73 @@ JS = r"""
     if(!active || !history.replaceState) return;
     try{ history.replaceState(null,'','#recorrido/'+id); }catch(e){}
   }
-  // ── «El hilo del agua»: río-guía del scroll ───────────────────────────────
+  // ── «El hilo del agua» v2: río-ribbon con paisaje de la cuenca ────────────
   var NS='http://www.w3.org/2000/svg';
-  var riverBase=null, riverWet=null, riverLen=0, riverY0=0, riverY1=1, riverInit=false;
+  var riverBase=null, riverLen=0, riverY0=0, riverY1=1, riverH=1, riverInit=false;
   function absTop(el){ return el.getBoundingClientRect().top + window.pageYOffset; }
+  // mini-paisaje (line-art 16px): se enciende cuando el agua lo alcanza
+  var ICONS=[
+    {f:0.015,lab:'nevado',   d:'M0 12 L5 3 L8 7 L11 1 L16 12 Z', fill:'M9.6 4.4 L11 1 L12.6 4.6 L11.2 5.8 Z'},
+    {f:0.36, lab:'lluvia',   d:'M3 7 Q3 3 7 3 Q9 0 12 2 Q15 2 15 5 Q15 7 13 7 Z M5 9 L4 12 M9 9 L8 12 M13 9 L12 12'},
+    {f:0.62, lab:'cultivo',  d:'M1 12 Q8 8 15 12 M2 9 Q8 5 14 9 M4 6 Q8 3 12 6'},
+    {f:0.80, lab:'valle',    d:'M2 12 L2 7 L5 4 L8 7 L8 12 Z M10 12 L10 8 L12.5 5.5 L15 8 L15 12 Z'},
+    {f:0.985,lab:'mar',      d:'M0 4 Q3 1 6 4 Q9 7 12 4 Q15 1 18 4 M0 9 Q3 6 6 9 Q9 12 12 9 Q15 6 18 9'}
+  ];
   function buildRiver(){
     var svg=$('sm-river'); if(!svg) return;
-    var H=svg.clientHeight||window.innerHeight, cx=20, amp=11, seg=7;
-    svg.setAttribute('viewBox','0 0 40 '+H);
-    // línea de meandro cabecera→mar
-    var d='M '+cx+' 0';
-    for(var i=1;i<=seg;i++){ var y=H*i/seg, my=H*(i-0.5)/seg, x=cx+((i%2)?amp:-amp);
-      d+=' Q '+x.toFixed(1)+' '+my.toFixed(1)+' '+cx+' '+y.toFixed(1); }
-    riverBase=svg.querySelector('.sm-river-base'); riverWet=svg.querySelector('.sm-river-wet');
-    riverBase.setAttribute('d',d); riverWet.setAttribute('d',d);
+    var H=svg.clientHeight||window.innerHeight; riverH=H;
+    var cx=26, seg=7;
+    svg.setAttribute('viewBox','0 0 64 '+H);
+    // meandro con carácter: amplitud crece en el tramo medio y se calma al llegar al mar
+    var d='M '+cx+' 0', pts=[[cx,0]];
+    for(var i=1;i<=seg;i++){
+      var t=i/seg, amp=8+10*Math.sin(Math.PI*Math.min(1,t*1.15));
+      var y=H*t, my=H*(t-0.5/seg), x=cx+((i%2)?amp:-amp);
+      d+=' Q '+x.toFixed(1)+' '+my.toFixed(1)+' '+cx+' '+y.toFixed(1);
+    }
+    riverBase=$('sm-river-basep'); riverBase.setAttribute('d',d);
+    $('sm-river-flow').setAttribute('d',d);
     riverLen=riverBase.getTotalLength();
-    riverWet.style.strokeDasharray=riverLen; riverWet.style.strokeDashoffset=riverLen;
-    // rango de scroll del storymap (primer capítulo centrado → último centrado)
+    // RIBBON: polígono con anchura creciente (hilo 1,2px → río 7px al mar)
+    var Nn=64, left=[], right=[];
+    for(var k=0;k<=Nn;k++){
+      var fL=k/Nn, P=riverBase.getPointAtLength(riverLen*fL);
+      var P2=riverBase.getPointAtLength(Math.min(riverLen,riverLen*fL+2));
+      var dx=P2.x-P.x, dy=P2.y-P.y, nl=Math.hypot(dx,dy)||1;
+      var nx=-dy/nl, ny=dx/nl, w=(1.2+6*Math.pow(fL,1.25))/2;
+      left.push((P.x+nx*w).toFixed(1)+','+(P.y+ny*w).toFixed(1));
+      right.push((P.x-nx*w).toFixed(1)+','+(P.y-ny*w).toFixed(1));
+    }
+    $('sm-river-ribbon').setAttribute('points', left.concat(right.reverse()).join(' '));
+    // AFLUENTES: quebradas que se unen al cauce en el tramo alto
+    var tribs=$('sm-river-tribs'); tribs.innerHTML='';
+    [[0.10,-1],[0.20,1],[0.30,-1]].forEach(function(tb){
+      var P=riverBase.getPointAtLength(riverLen*tb[0]);
+      var sx=P.x+tb[1]*16, sy=P.y-H*0.045;
+      var q=document.createElementNS(NS,'path');
+      q.setAttribute('d','M '+sx.toFixed(1)+' '+sy.toFixed(1)+' Q '+(P.x+tb[1]*7).toFixed(1)+' '+(P.y-H*0.015).toFixed(1)+' '+P.x.toFixed(1)+' '+P.y.toFixed(1));
+      q.setAttribute('class','sm-river-trib'); tribs.appendChild(q);
+    });
+    // PAISAJE: nevado → lluvia → cultivo → valle (casas) → mar
+    var icons=$('sm-river-icons'); icons.innerHTML='';
+    ICONS.forEach(function(ic){
+      var P=riverBase.getPointAtLength(riverLen*ic.f);
+      // columna izquierda constante (visible junto al margen, nunca bajo la tarjeta)
+      var gx=(ic.f>0.9)? (cx-9) : 1, gy=P.y-6;
+      var g=document.createElementNS(NS,'g');
+      g.setAttribute('class','sm-river-icon'); g.setAttribute('data-f',ic.f);
+      g.setAttribute('transform','translate('+gx.toFixed(1)+','+gy.toFixed(1)+')');
+      var p1=document.createElementNS(NS,'path'); p1.setAttribute('d',ic.d); g.appendChild(p1);
+      if(ic.fill){ var p2=document.createElementNS(NS,'path'); p2.setAttribute('d',ic.fill);
+        p2.setAttribute('class','fill'); g.appendChild(p2); }
+      var t=document.createElementNS(NS,'title'); t.textContent=ic.lab; g.appendChild(t);
+      icons.appendChild(g);
+      var tx=document.createElementNS(NS,'text');
+      tx.setAttribute('x',gx+9); tx.setAttribute('y',gy+22); tx.setAttribute('text-anchor','middle');
+      tx.setAttribute('class','sm-river-icolab'); tx.setAttribute('data-f',ic.f);
+      tx.textContent=ic.lab; icons.appendChild(tx);
+    });
+    // rango de scroll (primer capítulo centrado → último centrado) + nodos
     var steps=document.querySelectorAll('.sm-step');
     if(!steps.length) return;
     var vh=window.innerHeight;
@@ -1188,7 +1270,6 @@ JS = r"""
     var last=steps[steps.length-1];
     riverY1=absTop(last)+last.offsetHeight/2-vh/2;
     var span=Math.max(1, riverY1-riverY0);
-    // un nodo por capítulo, en su fracción de scroll
     var nodes=$('sm-river-nodes'); nodes.innerHTML='';
     steps.forEach(function(st){
       var yc=absTop(st)+st.offsetHeight/2-vh/2;
@@ -1200,9 +1281,9 @@ JS = r"""
       c.setAttribute('class','sm-river-node'); c.setAttribute('data-cap',st.getAttribute('data-cap'));
       c.setAttribute('data-f',f.toFixed(4));
       var nm=st.querySelector('.sm-h'), num=st.querySelector('.sm-num');
-      var t=document.createElementNS(NS,'title');
-      t.textContent=(num?num.textContent+' · ':'')+(nm?nm.textContent:'');
-      c.appendChild(t);
+      var t2=document.createElementNS(NS,'title');
+      t2.textContent=(num?num.textContent+' · ':'')+(nm?nm.textContent:'');
+      c.appendChild(t2);
       c.addEventListener('click',function(){ st.scrollIntoView({behavior:reduce?'instant':'smooth',block:'center'}); });
       nodes.appendChild(c);
     });
@@ -1211,14 +1292,27 @@ JS = r"""
   function updateRiver(){
     if(!riverInit||!riverBase) return;
     var p=Math.min(1,Math.max(0,(window.pageYOffset-riverY0)/Math.max(1,riverY1-riverY0)));
-    riverWet.style.strokeDashoffset=riverLen*(1-p);              // el cauce se dibuja hasta donde vas
+    // el cauce se revela hasta donde vas (clip vertical sobre ribbon+flujo+afluentes)
     var pt=riverBase.getPointAtLength(riverLen*p);
+    $('sm-river-cliprect').setAttribute('height', Math.max(0, pt.y+3).toFixed(0));
     var drop=$('sm-river').querySelector('.sm-river-drop');
     if(drop){ drop.setAttribute('cx',pt.x.toFixed(1)); drop.setAttribute('cy',pt.y.toFixed(1)); }
+    // brazo que desemboca en la tarjeta activa (siempre ~centrada en el viewport)
+    var arm=$('sm-river-arm'), an=document.querySelector('.sm-river-node.is-on');
+    if(arm){
+      if(an && curCap!=='origen'){
+        var ax=+an.getAttribute('cx'), ay=+an.getAttribute('cy'), ty=riverH/2;
+        arm.setAttribute('d','M '+ax+' '+ay+' C '+(ax+14)+' '+ay+' '+(ax+8)+' '+ty+' 38 '+ty);
+        arm.style.opacity=1;
+      } else { arm.style.opacity=0; }
+    }
+    var mark=function(el){ var f=parseFloat(el.getAttribute('data-f'));
+      el.classList.toggle('is-past', f<=p+0.001); };
     var nodes=$('sm-river-nodes').children;
-    for(var i=0;i<nodes.length;i++){ var f=parseFloat(nodes[i].getAttribute('data-f'));
-      nodes[i].classList.toggle('is-past', f<=p+0.001);
+    for(var i=0;i<nodes.length;i++){ mark(nodes[i]);
       nodes[i].classList.toggle('is-on', nodes[i].getAttribute('data-cap')===curCap); }
+    var ics=$('sm-river-icons').children;
+    for(var j=0;j<ics.length;j++){ mark(ics[j]); }
   }
   function updateDots(id){ updateRiver(); }   // el nodo activo se marca por curCap
   // Perfil longitudinal REAL del río (cabecera→mar) como sparkline de la ficha cap.02.
