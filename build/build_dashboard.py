@@ -430,6 +430,57 @@ def estado_pill() -> str:
         f'{nivel.upper()}</span></div>')
 
 
+def panel_hoy() -> str:
+    """Panel operativo «situación de hoy» (auditoría del decisor + martini glass):
+    3 casillas — última observación con nivel, margen al umbral de vigilancia, y la
+    acción que activaría el protocolo. Honesto: declara la fecha del dato (no es
+    telemetría en vivo) y que con aforo en línea sería el SAT operativo."""
+    d = pd.read_csv(DATA / "caudal_obs.csv", parse_dates=["date"]).dropna()
+    fila = d.iloc[-1]
+    q = float(fila.iloc[1])
+    f = fila["date"]
+    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+             "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    fecha = f"{f.day} de {meses[f.month-1]} de {f.year}"
+    nivel, color = "Normal", COL_OK
+    if q >= UMBRAL_Q90:
+        nivel, color = "Vigilancia", COL_VIGIL_LN
+    for n, _c, u, _t, hx in NIVELES_ALERTA:
+        if q >= u:
+            nivel, color = n, hx
+    margen = UMBRAL_Q90 / q
+    q_txt = f"{q:.1f}".replace(".", ",")
+    m_txt = f"{margen:.1f}".replace(".", ",")
+    accion = {
+        "Normal": "Monitoreo rutinario: el pronóstico corre a diario y nadie necesita actuar.",
+        "Vigilancia": "Arranca el seguimiento reforzado: pronóstico y aforo se revisan cada día.",
+        "Moderado": "Aviso a Defensa Civil y juntas de usuarios (nivel Amarillo RM-049).",
+        "Fuerte": "Alerta activa: COER y municipios preparan evacuación preventiva (Naranja).",
+        "Extremo": "Emergencia: evacuación de zonas ribereñas (Rojo).",
+    }[nivel]
+    return f"""
+      <section class="hoy reveal" aria-label="Situación actual del río">
+        <div class="hoy-card">
+          <span class="hoy-lab">Última observación · {fecha}</span>
+          <span class="hoy-val mono">{q_txt} <small>m³/s</small></span>
+          <span class="hoy-chip" style="color:{color};border-color:{color}">{nivel.upper()}</span>
+        </div>
+        <div class="hoy-card">
+          <span class="hoy-lab">Margen al umbral de vigilancia</span>
+          <span class="hoy-val mono">×{m_txt} <small>por debajo</small></span>
+          <span class="hoy-sub">vigilancia (P90) = 40,9 m³/s · el río lo supera ~1 de cada 10 días</span>
+        </div>
+        <div class="hoy-card">
+          <span class="hoy-lab">Qué activa este nivel</span>
+          <span class="hoy-txt">{accion}</span>
+          <span class="hoy-sub">niveles RM-049: Moderado 87,2 · Fuerte 104,1 · Extremo 117,8 m³/s</span>
+        </div>
+      </section>
+      <p class="nota reveal" style="margin-top:2px">Datos al {fecha} (fin de la serie
+      curada). Con aforo en línea, este panel es el frente operativo del sistema de
+      alerta temprana.</p>"""
+
+
 def _svg_spark(series, color):
     """Mini-sparkline SVG (~230×52) de una serie anual [[año,valor],…]: área + línea +
     punto final, con el primer y último año. Muestra el HISTÓRICO de la estación."""
@@ -1042,6 +1093,13 @@ def bloque_serie_interactiva(cfg_json: str) -> str:
         f'<option value="{ld}">{ld} día{"s" if ld != 1 else ""}</option>'
         for ld in LEADS_FCAST)
     return f"""
+    <div class="fc-momentos" role="group" aria-label="Momentos del relato">
+      <button type="button" class="fc-mom" data-m="0">① La emisión · 26 ene</button>
+      <button type="button" class="fc-mom" data-m="1">② La señal crece</button>
+      <button type="button" class="fc-mom" data-m="2">③ El cruce · 2 feb</button>
+      <button type="button" class="fc-mom" data-m="3">④ Explora libre</button>
+    </div>
+    <div class="fc-story-cap" id="fc-story-cap" hidden></div>
     <div class="fc-controls" role="group" aria-label="Selección de modelo y horizonte">
       <label class="fc-field">
         <span class="fc-field-lab">Modelo</span>
@@ -1311,7 +1369,9 @@ def construir_excedencia(fcast: pd.DataFrame):
     div = fig.to_html(include_plotlyjs=False, full_html=False,
                       div_id="grafico-excedencia",
                       config={"displayModeBar": False, "responsive": True})
-    fecha = f"{emision.day} de enero de {emision.year}"
+    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+             "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    fecha = f"{emision.day} de {meses[emision.month-1]} de {emision.year}"
     return div, fecha
 
 
@@ -1358,10 +1418,15 @@ def construir_dotplot_horizonte(metr: pd.DataFrame) -> str:
             text=f"{'+' if d >= 0 else '−'}{abs(d):.3f}".replace(".", ","),
             font=dict(size=11, family=FONT_MONO,
                       color=COL_OK if d > 0 else COL_MUTED))
-    fig.add_annotation(
-        xref="paper", yref="paper", x=0.02, y=0.30, xanchor="left", showarrow=False,
-        text="a ≥3 días, el modelo propuesto<br>sostiene mejor la habilidad",
-        font=dict(size=12.5, family=FONT_SANS, color=COL_DEEP), align="left")
+    for num, ylab, xa, texto in [
+        ("01", "1 día",   0.58, "empate en el techo del baseline"),
+        ("02", "5 días",  0.30, "el modelo se despega"),
+        ("03", "14 días", 0.58, "solo él sostiene la habilidad a dos semanas"),
+    ]:
+        fig.add_annotation(
+            x=xa, y=ylab, xanchor="left", showarrow=False,
+            text=f"<span style='font-family:{FONT_MONO}'>{num}</span> · {texto}",
+            font=dict(size=11.5, family=FONT_SANS, color=COL_DEEP))
     fig.update_layout(**layout_base(
         margin=dict(l=64, r=64, t=44, b=40), height=330,
         xaxis=axis_x(title="NSE (1 = ajuste perfecto)", range=[0.30, 1.02]),
@@ -2170,9 +2235,9 @@ def kpi_cards(serie: pd.DataFrame, metr: pd.DataFrame) -> str:
          "vigilancia P90) del modelo propuesto a un día", "acc"),
         ("Vigilancia (P90)", "40,9", "m³/s", "Umbral de vigilancia de crecidas: "
          "percentil 90 del caudal observado (el río lo supera ~1 de cada 10 días)",
-         "crit"),
-        ("Días en alerta", f"{dias_alerta}", "días", "Días observados con "
-         "caudal en o sobre el umbral (2024–2025)", "crit"),
+         "vig"),
+        ("Días en vigilancia", f"{dias_alerta}", "días", "Días observados con "
+         "caudal en o sobre el umbral (2024–2025)", "vig"),
     ]
     out = []
     for lab, val, uni, desc, estado in indicadores:
@@ -2929,6 +2994,36 @@ CSS_RESULTADOS = r"""
   color:#8494A0;font-size:13px;}
 @media (max-width:640px){.dex-dl{margin-left:0;}}
 
+/* ── Panel «situación de hoy» (Resumen) ── */
+.hoy{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#E2E8EE;
+  border:1px solid #E2E8EE;border-radius:14px;overflow:hidden;margin-bottom:10px;}
+.hoy-card{background:#fff;padding:18px 20px 15px;display:flex;flex-direction:column;gap:7px;}
+.hoy-lab{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#5B6B78;}
+.hoy-val{font-size:30px;font-weight:700;color:#0C1E2A;line-height:1.05;font-variant-numeric:tabular-nums;}
+.hoy-val small{font-size:13px;font-weight:500;color:#5B6B78;}
+.hoy-chip{align-self:flex-start;font-family:IBM Plex Mono,monospace;font-size:10.5px;
+  letter-spacing:.09em;padding:3px 10px;border:1.5px solid;border-radius:999px;font-weight:600;}
+.hoy-txt{font-size:13.5px;color:#0C1E2A;line-height:1.5;}
+.hoy-sub{font-size:11px;color:#8494A0;line-height:1.45;margin-top:auto;}
+@media(max-width:820px){.hoy{grid-template-columns:1fr;}}
+/* momentos del modo historia (Pronóstico) */
+.fc-momentos{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 4px;}
+.fc-mom{font-family:IBM Plex Sans,system-ui;font-size:12.5px;padding:7px 13px;border-radius:999px;
+  border:1px solid #D5DEE6;background:#fff;color:#5B6B78;cursor:pointer;transition:.16s;}
+.fc-mom:hover{border-color:#1BA8C4;color:#0B6E8C;}
+.fc-mom.is-active{background:#0B6E8C;color:#fff;border-color:#0B6E8C;}
+.fc-story-cap{font-size:13px;color:#0C1E2A;line-height:1.55;background:#F0F7FA;
+  border-left:3px solid #0B6E8C;border-radius:0 8px 8px 0;padding:9px 13px;margin:8px 0 2px;min-height:20px;}
+.fc-story-cap b{color:#0A3D54;}
+/* detalles técnicos plegables */
+.tec-details{border:1px solid #E2E8EE;border-radius:12px;margin-top:26px;background:#FBFCFD;}
+.tec-details summary{cursor:pointer;padding:14px 18px;font-family:IBM Plex Sans,system-ui;
+  font-size:14px;font-weight:600;color:#0A3D54;list-style:none;}
+.tec-details summary::-webkit-details-marker{display:none;}
+.tec-details summary::before{content:'▸ ';color:#1BA8C4;}
+.tec-details[open] summary::before{content:'▾ ';}
+.tec-details > div{padding:0 18px 18px;}
+
 /* ── Eventos e impactos: línea de tiempo + comparador antes/después ── */
 .evt-timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#E2E8EE;
   border:1px solid #E2E8EE;border-radius:12px;overflow:hidden;margin:14px 0 24px;}
@@ -3025,7 +3120,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
               enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
               recorrido_div, resultados_html, protocolo_html, explorador_div="",
               eventos_div="", dotplot_div="", espagueti_div="",
-              excedencia_html="") -> str:
+              excedencia_html="", panel_hoy_html="") -> str:
     est = meta["estacion"]
     area = meta["cuenca_area_km2"]
     nsub = meta["n_subcuencas"]
@@ -3252,6 +3347,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     </div>
 
     <div class="tab-body">
+{panel_hoy_html}
+
       <section class="reveal" aria-label="Indicadores resumen">
         <p class="eyebrow">Cifras clave · periodo de prueba 2024–2025</p>
         {kpi_html}
@@ -3295,7 +3392,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             <span class="esc-bar"><span style="width:36%;background:{COL_WARN}"></span></span>
             <span class="esc-val mono">40,9 · ×2,4</span></div>
           <div class="esc-row"><span class="esc-lab">Nivel Moderado</span>
-            <span class="esc-bar"><span style="width:77%;background:#E0A81E"></span></span>
+            <span class="esc-bar"><span style="width:77%;background:#E07B39"></span></span>
             <span class="esc-val mono">87,2 · ×5,1</span></div>
           <div class="esc-row"><span class="esc-lab">Ciclón Yaku (2023)</span>
             <span class="esc-bar"><span style="width:100%;background:{COL_CRIT}"></span></span>
@@ -3478,7 +3575,10 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
       registro.</p>
 {eventos_div}
 
-      <header class="tab-head tab-head-sep reveal">
+      <details class="tec-details reveal">
+        <summary>Para el jurado técnico · ¿cuánto aporta cada índice ENSO al modelo? (ablación y correlación)</summary>
+        <div>
+      <header class="tab-head reveal">
         <p class="eyebrow">Ablación · aporte de los índices</p>
         <h2 class="h-serif">¿Cuánto aporta cada índice ENSO al modelo?</h2>
         <p class="prose prose-wide">Eficiencia (NSE) de validación al añadir cada
@@ -3510,6 +3610,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           por separado.</p>
         </aside>
       </section>
+        </div>
+      </details>
     </div>
   </section>
 
@@ -3770,6 +3872,7 @@ main {{ display:block; }}
   font-size:clamp(2.1rem,3.4vw,2.75rem); font-weight:500; color:var(--deep);
   line-height:1.05; margin-top:10px; letter-spacing:-.03em; }}
 .kpi-crit .kpi-val {{ color:var(--crit); }}
+.kpi-vig .kpi-val {{ color:#9A7B0A; }}
 .kpi-uni {{ font-family:var(--sans); font-size:.9rem; font-weight:500;
   color:var(--muted); margin-left:5px; letter-spacing:0; }}
 .kpi-desc {{ font-size:12px; color:var(--muted); margin-top:11px; line-height:1.5;
@@ -4789,8 +4892,8 @@ JS_FORECAST = """
         (CFG.niveles||[]).map(function(nv){ return { type:'line', xref:'paper', yref:'y',
            x0:0, x1:1, y0:nv.u, y1:nv.u,
            line:{color:nv.hex, width:1.4, dash:'dot'}, layer:'above' }; })),
-      annotations:[{ xref:'paper', yref:'paper', x:0.01, y:1.045, yanchor:'bottom',
-        xanchor:'left', showarrow:false,
+      annotations:[{ xref:'paper', yref:'paper', x:0.99, y:1.10, yanchor:'bottom',
+        xanchor:'right', showarrow:false,
         text:'La banda se abre porque sabemos menos, no porque venga más agua',
         font:{color:CFG.col_muted, size:11, family:FS} },
       { xref:'paper', yref:'y', x:0.995, y:CFG.umbral, yanchor:'bottom',
@@ -5450,6 +5553,49 @@ JS_JUXTAPOSE = """
   function boot(){ var p=document.getElementById('tab-clima'); if(!p||p.hidden||inited) return; inited=true; load('flood'); }
   document.addEventListener('hidroalerta:tabshown',function(){ setTimeout(boot,80); });
   setTimeout(boot,400);
+})();
+"""
+
+# Modo historia del visor de pronóstico: 4 «momentos» que fijan modelo/horizonte/
+# rango y narran (martini glass: tallo autoral → ④ abre la exploración libre).
+JS_MOMENTOS = """
+(function(){
+  var MOMS=[
+   {mod:'RA-TFT',lead:'7',r:['2024-01-08','2024-02-24'],
+    t:'<b>26 de enero de 2024:</b> el sistema emite su pronóstico a 7 días. La mediana sube y la banda —8 de cada 10 escenarios— se arrima al umbral de vigilancia.'},
+   {mod:'RA-TFT',lead:'14',r:['2024-01-08','2024-02-24'],
+    t:'<b>La señal crece con el horizonte:</b> a 14 días, 5 de cada 10 escenarios ya superan la vigilancia (la matriz de excedencia, abajo, lo cuantifica).'},
+   {mod:'RA-TFT',lead:'1',r:['2024-01-18','2024-02-24'],
+    t:'<b>2 de febrero:</b> el río cruza el umbral —56,7 m³/s observados—. El aviso habría salido con una semana de margen.'},
+   {mod:null,lead:null,r:null,
+    t:'<b>Explora:</b> cambie modelo y horizonte, o arrastre el rango inferior. La historia completa vive en los datos.'}
+  ];
+  var selM=document.getElementById('fc-modelo'), selL=document.getElementById('fc-lead'),
+      cap=document.getElementById('fc-story-cap'), btns=document.querySelectorAll('.fc-mom');
+  if(!btns.length) return;
+  function go(i){
+    var m=MOMS[i]; if(!m) return;
+    btns.forEach(function(b,j){ b.classList.toggle('is-active', j===i); });
+    if(cap){ cap.hidden=false; cap.innerHTML=m.t; }
+    if(m.mod&&selM&&selM.value!==m.mod){ selM.value=m.mod; selM.dispatchEvent(new Event('change')); }
+    if(m.lead&&selL&&selL.value!==m.lead){ selL.value=m.lead; selL.dispatchEvent(new Event('change')); }
+    var g=document.getElementById('grafico-serie');
+    if(g&&window.Plotly){ setTimeout(function(){ try{
+      Plotly.relayout(g, m.r?{'xaxis.range':m.r}:{'xaxis.autorange':true}); }catch(e){} },520); }
+  }
+  btns.forEach(function(b){ b.addEventListener('click', function(){ go(+this.getAttribute('data-m')); }); });
+})();
+"""
+
+# Plegables técnicos: al abrir, Plotly re-mide los gráficos que nacieron ocultos.
+JS_DETAILS = """
+(function(){
+  document.querySelectorAll('.tec-details').forEach(function(d){
+    d.addEventListener('toggle', function(){
+      if(d.open&&window.Plotly){ setTimeout(function(){
+        d.querySelectorAll('.js-plotly-plot').forEach(function(g){try{Plotly.Plots.resize(g);}catch(e){}}); },60); }
+    });
+  });
 })();
 """
 
@@ -6157,6 +6303,7 @@ def main():
     dotplot_div = construir_dotplot_horizonte(metr)
     espagueti_div = construir_espagueti_lluvia()
     exc_div, exc_fecha = construir_excedencia(fcast)
+    panel_hoy_html = panel_hoy()
     excedencia_html = f'''
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">Del cuantil a la decisión</p>
@@ -6174,7 +6321,7 @@ def main():
                        mensual_div, evento_div, enso_div, enso_caudal_div, eda_div, enso_abl_div,
                        enso_callout, enso_r2_div, embed_div, imgs, meta, serie,
                        recorrido_div, resultados_html, protocolo_html, explorador_div, eventos_div,
-                       dotplot_div, espagueti_div, excedencia_html)
+                       dotplot_div, espagueti_div, excedencia_html, panel_hoy_html)
 
     doc = f"""<!DOCTYPE html>
 <html lang="es">
@@ -6202,6 +6349,8 @@ def main():
 <script>{JS_EMBED}</script>
 <script>{JS_COUNTERS}</script>
 <script>{JS_EXPLORER}</script>
+<script>{JS_MOMENTOS}</script>
+<script>{JS_DETAILS}</script>
 <script>{JS_JUXTAPOSE}</script>
 <script>{SM.JS}</script>
 </body>
