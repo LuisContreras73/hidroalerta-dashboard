@@ -1458,27 +1458,29 @@ def construir_radar_modelos(metr: pd.DataFrame) -> str:
     """Huella radial por modelo (h=1 y h=7). El radar es un canal débil (ángulo/área,
     Cleveland & McGill) — se usa como FIRMA de un vistazo, no para lectura fina (esa
     es el dotplot). Reglas de honestidad: todas las métricas re-orientadas a
-    «habilidad 0–1» (se invierten FAR/MAE/CRPS); si un modelo no emite alertas
-    (POD=0), sus ejes de alerta valen 0 (un FAR=0 por no alertar no es mérito);
-    sin CRPS (sin cuantiles) → 0 en ese eje."""
-    ejes = ["NSE", "KGE", "Detección<br>(POD)", "Alerta certera<br>(1−FAR)",
-            "CSI", "Error bajo<br>(MAE rel.)", "Prob. (CRPS rel.)"]
+    «habilidad 0–1». MAE/CRPS → razón mejor/valor (1 = el mejor del horizonte;
+    nadie queda en 0 por construcción). Si un modelo no emite alertas (POD=0),
+    sus ejes de alerta valen 0 (un FAR=0 por no alertar no es mérito); sin CRPS
+    (sin cuantiles) → 0 en ese eje. Ejes agrupados: exactitud | prob. | alerta."""
+    ejes = ["NSE", "KGE", "Error bajo<br>(MAE, mejor = 1)",
+            "Prob.<br>(CRPS, mejor = 1)", "Detección<br>(POD)",
+            "Alerta certera<br>(1−FAR)", "CSI"]
     fig = make_subplots(rows=1, cols=2, specs=[[{"type": "polar"}]*2],
                         subplot_titles=("a 1 día", "a 7 días"),
                         horizontal_spacing=0.16)
     for ci, ld in enumerate((1, 7), start=1):
         sub = metr[metr["lead"] == ld].set_index("model")
-        mae_max = sub["MAE"].max()
-        crps_max = sub["CRPS"].max()
+        mae_min = sub["MAE"].min()
+        crps_min = sub["CRPS"].min()
         for mod in ORDEN_MODELO:
             if mod not in sub.index:
                 continue
             r = sub.loc[mod]
             sin_alerta = (r["POD"] == 0)
             vals = [max(0, min(1, r["NSE"])), max(0, min(1, r["KGE"])),
-                    r["POD"], 0 if sin_alerta else 1 - r["FAR"],
-                    r["CSI"], 1 - r["MAE"]/mae_max,
-                    0 if pd.isna(r["CRPS"]) else 1 - r["CRPS"]/crps_max]
+                    mae_min / r["MAE"],
+                    0 if pd.isna(r["CRPS"]) else crps_min / r["CRPS"],
+                    r["POD"], 0 if sin_alerta else 1 - r["FAR"], r["CSI"]]
             es_prop = (mod == "RA-TFT")
             fig.add_trace(go.Scatterpolar(
                 r=vals + vals[:1], theta=ejes + ejes[:1],
@@ -3648,7 +3650,25 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
            class="tabpanel" tabindex="0" hidden>
     <div class="tab-body">
       <header class="tab-head reveal">
-        <p class="eyebrow">Evaluación comparativa</p>
+        <p class="eyebrow">Panorámica · cuatro modelos, siete métricas</p>
+        <h2 class="h-serif">La huella de cada modelo, de un vistazo</h2>
+        <p class="prose prose-wide">Cada eje es una métrica re-orientada a
+        <b>habilidad 0–1</b> (borde exterior = mejor): exactitud (NSE, KGE, error),
+        probabilidad (CRPS) y alerta (POD, 1−FAR, CSI). A 1 día las huellas casi se
+        superponen — todos compiten. A 7 días <b>todos</b> pierden los ejes de
+        alerta binaria (por eso a ese horizonte se comunica probabilidad, no
+        alerta) y solo el modelo propuesto (relleno) sostiene la exactitud y la
+        calidad probabilística. Las secciones siguientes hacen zoom en cada
+        pregunta.</p>
+      </header>
+      <div class="reveal">{radar_div}</div>
+      <p class="nota reveal">Vista panorámica, no de lectura fina (esa es el dotplot
+      y la tabla). MAE y CRPS se muestran como razón «mejor del horizonte / valor»
+      (1 = el mejor). Sin alertas emitidas (POD = 0) los ejes de alerta valen 0; sin
+      cuantiles, el eje CRPS vale 0.</p>
+
+      <header class="tab-head tab-head-sep reveal">
+        <p class="eyebrow">El argumento · habilidad según horizonte</p>
         <h2 class="h-serif">A más días de anticipación, más ventaja del modelo</h2>
         <p class="prose prose-wide">Un punto por modelo y horizonte (NSE; derecha =
         mejor). A 1 día todos rozan el techo de la persistencia; desde <b>3–5 días</b>
