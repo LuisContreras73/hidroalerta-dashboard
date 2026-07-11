@@ -5362,6 +5362,20 @@ JS_EMBED = """
 
     var colorMode = 'q';         // 'q' | 'reg' | 'temp'
 
+    // Detección de WebGL. Si no está disponible (aceleración por hardware
+    // apagada o driver en lista negra), Plotly 'scattergl' NO dibuja y muestra
+    // "…WebGL… disabled or unavailable". Caemos a 'scatter' (SVG): como solo se
+    // dibuja la tarjeta activa (~4018 puntos), SVG rinde bien y se ve en todos
+    // los dispositivos.
+    function webglOK(){
+      try {
+        var c = document.createElement('canvas');
+        return !!(window.WebGLRenderingContext &&
+          (c.getContext('webgl') || c.getContext('experimental-webgl')));
+      } catch(e){ return false; }
+    }
+    var GLTYPE = webglOK() ? 'scattergl' : 'scatter';
+
     // Slug ASCII por método (coincide con los id de los divs y las etiquetas).
     var SLUG = { 'PCA':'pca', 'Features→PCA':'featpca', 't-SNE':'tsne',
       'UMAP':'umap', 'Isomap':'isomap', 'LLE':'lle', 'TS2Vec':'ts2vec',
@@ -5398,7 +5412,7 @@ JS_EMBED = """
         // colorbar. WebGL rinde con fluidez los ~4018 puntos por tarjeta.
         var tx = [];
         for (var i=0;i<d.x.length;i++){ tx.push(hoverText(d,i)); }
-        return [{ x:d.x, y:d.y, mode:'markers', type:'scattergl',
+        return [{ x:d.x, y:d.y, mode:'markers', type:GLTYPE,
           name:'Caudal', text:tx, hoverinfo:'text', showlegend:false,
           marker:{ color:d.q, colorscale:SCALE_Q, cmin:CFG.q_min, cmax:CFG.q_max,
             size:5, opacity:0.7, line:{width:0},
@@ -5413,10 +5427,10 @@ JS_EMBED = """
         // crecida roja más marcada (encima). scattergl para densidad fluida.
         var b = split(d,'regimen','base'), c = split(d,'regimen','crecida');
         return [
-          { x:b.x, y:b.y, mode:'markers', type:'scattergl', name:'Base',
+          { x:b.x, y:b.y, mode:'markers', type:GLTYPE, name:'Base',
             text:b.text, hoverinfo:'text',
             marker:{ color:toRGBA(CFG.col_base,0.38), size:4.5, line:{width:0} } },
-          { x:c.x, y:c.y, mode:'markers', type:'scattergl', name:'Crecida',
+          { x:c.x, y:c.y, mode:'markers', type:GLTYPE, name:'Crecida',
             text:c.text, hoverinfo:'text',
             marker:{ color:toRGBA(CFG.col_crecida,0.9), size:7,
               line:{width:0} } }
@@ -5425,10 +5439,10 @@ JS_EMBED = """
       // (c) Temporada: húmeda vs seca (dos colores). scattergl (WebGL).
       var h = split(d,'temporada','humeda'), s = split(d,'temporada','seca');
       return [
-        { x:s.x, y:s.y, mode:'markers', type:'scattergl', name:'Seca',
+        { x:s.x, y:s.y, mode:'markers', type:GLTYPE, name:'Seca',
           text:s.text, hoverinfo:'text',
           marker:{ color:toRGBA(CFG.col_seca,0.6), size:5, line:{width:0} } },
-        { x:h.x, y:h.y, mode:'markers', type:'scattergl', name:'Húmeda',
+        { x:h.x, y:h.y, mode:'markers', type:GLTYPE, name:'Húmeda',
           text:h.text, hoverinfo:'text',
           marker:{ color:toRGBA(CFG.col_humeda,0.6), size:5, line:{width:0} } }
       ];
