@@ -4056,6 +4056,16 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <figure class="iot-fig"><img src="assets/iot/render_nodo_nivel.jpg" alt="Render 3D del nodo">
           <figcaption><b>Modelo 3D.</b> Nodo de nivel ensamblado, diseñado en KiCad.</figcaption></figure>
       </div>
+      <div class="iot-3d reveal">
+        <div class="iot-3d-stage" id="iot3d-stage">
+          <img class="iot-3d-poster" id="iot3d-poster" src="assets/iot/render_nodo_nivel.jpg"
+               alt="Modelo tridimensional del nodo IoT">
+          <button class="iot-3d-btn" id="iot3d-btn" type="button">Ver el modelo 3D del nodo</button>
+        </div>
+        <p class="nota">Modelo real del nodo de nivel, exportado desde KiCad. Arrastra para girar ·
+        rueda del ratón para acercar. Se descarga solo al pulsar el botón.</p>
+      </div>
+
       <div class="iot-grid reveal">
         <figure class="iot-fig wide"><a href="assets/iot/esquema_nivel.png" target="_blank" rel="noopener" title="Abrir el esquema en tamano completo"><img src="assets/iot/esquema_nivel.png" alt="Esquema electrico del nodo de nivel"></a>
           <figcaption><b>Diagrama electrónico · nodo de NIVEL.</b> Diseño propio en KiCad 9:
@@ -4286,6 +4296,20 @@ main {{ display:block; }}
   border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
   background:var(--surf); box-shadow:var(--shadow); }}
 .consola-wrap iframe {{ position:absolute; inset:0; width:100%; height:100%; border:0; }}
+
+/* ── Visor 3D del nodo (pestaña IoT) ──────────────────────────────── */
+.iot-3d-stage {{ position:relative; width:100%; aspect-ratio:16/10;
+  border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
+  background:#0e1a20; box-shadow:var(--shadow-sm);
+  display:flex; align-items:center; justify-content:center; }}
+.iot-3d-stage canvas {{ display:block; width:100%; height:100%; }}
+.iot-3d-poster {{ position:absolute; inset:0; width:100%; height:100%;
+  object-fit:contain; opacity:.42; }}
+.iot-3d-btn {{ position:relative; z-index:2; font-family:var(--sans); font-size:15px;
+  font-weight:600; color:#fff; background:var(--accent); border:0; border-radius:999px;
+  padding:12px 26px; cursor:pointer; box-shadow:0 6px 20px rgba(12,30,42,.30); }}
+.iot-3d-btn:hover {{ background:var(--deep); }}
+.iot-3d-btn:disabled {{ opacity:.8; cursor:progress; }}
 
 /* ── Hero (full-bleed, Resumen) ───────────────────────────────────── */
 .hero {{ position:relative; overflow:hidden; isolation:isolate;
@@ -5109,6 +5133,87 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 
 
 # ── Script de interacción (reveal on load/scroll, respeta reduced-motion) ─────
+JS_IOT3D = """
+/* Visor 3D del nodo IoT. Carga perezosa: three.js y el modelo VRML (4,6 MB)
+   solo se descargan cuando la persona pulsa el boton, para no penalizar la
+   carga inicial del reportaje. */
+(function(){
+  var btn = document.getElementById('iot3d-btn');
+  var host = document.getElementById('iot3d-stage');
+  if (!btn || !host) return;
+  var started = false;
+
+  btn.addEventListener('click', function(){
+    if (started) return;
+    started = true;
+    btn.disabled = true;
+    btn.textContent = 'Cargando modelo\u2026';
+
+    var CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.0/';
+    Promise.all([
+      import(CDN + '+esm'),
+      import(CDN + 'examples/jsm/loaders/VRMLLoader.js/+esm'),
+      import(CDN + 'examples/jsm/controls/OrbitControls.js/+esm')
+    ]).then(function(mods){
+      var THREE = mods[0];
+      var VRMLLoader = mods[1].VRMLLoader;
+      var OrbitControls = mods[2].OrbitControls;
+
+      function W(){ return host.clientWidth || 800; }
+      function H(){ return host.clientHeight || 500; }
+
+      var scene = new THREE.Scene();
+      scene.background = new THREE.Color('#0e1a20');
+      var camera = new THREE.PerspectiveCamera(42, W()/H(), 0.1, 100000);
+      var renderer = new THREE.WebGLRenderer({ antialias:true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(W(), H());
+      host.appendChild(renderer.domElement);
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4a55, 2.4));
+      var key = new THREE.DirectionalLight(0xffffff, 1.7); key.position.set(1, 1.4, 1); scene.add(key);
+      var fill = new THREE.DirectionalLight(0xbfe6f2, 0.8); fill.position.set(-1, -0.4, -0.9); scene.add(fill);
+
+      var controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 1.0;
+
+      new VRMLLoader().load('assets/iot/nodo_nivel.wrl', function(obj){
+        var box = new THREE.Box3().setFromObject(obj);
+        var size = box.getSize(new THREE.Vector3());
+        var center = box.getCenter(new THREE.Vector3());
+        obj.position.sub(center);
+        var radius = Math.max(size.x, size.y, size.z) || 1;
+        camera.position.set(radius * 0.85, radius * 0.70, radius * 1.25);
+        camera.near = radius / 200; camera.far = radius * 40;
+        camera.updateProjectionMatrix();
+        controls.target.set(0, 0, 0);
+        controls.minDistance = radius * 0.35;
+        controls.maxDistance = radius * 4;
+        controls.update();
+        scene.add(obj);
+        var poster = document.getElementById('iot3d-poster');
+        if (poster) poster.style.display = 'none';
+        btn.style.display = 'none';
+        host.classList.add('is-ready');
+      }, null, function(){
+        btn.disabled = false;
+        btn.textContent = 'No se pudo cargar el modelo 3D';
+      });
+
+      window.addEventListener('resize', function(){
+        camera.aspect = W()/H(); camera.updateProjectionMatrix(); renderer.setSize(W(), H());
+      });
+      (function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+    }).catch(function(){
+      btn.disabled = false;
+      btn.textContent = 'No se pudo cargar el visor 3D';
+    });
+  });
+})();
+"""
+
 JS_REVEAL = """
 (function(){
   // Marca que hay JS: solo entonces las secciones parten ocultas (sin JS, visibles).
@@ -6820,6 +6925,7 @@ def main():
 <script>{JS_MOMENTOS}</script>
 <script>{JS_DETAILS}</script>
 <script>{JS_JUXTAPOSE}</script>
+<script>{JS_IOT3D}</script>
 <script>{SM.JS}</script>
 </body>
 </html>
