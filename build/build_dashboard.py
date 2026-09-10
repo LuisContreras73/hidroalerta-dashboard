@@ -3458,6 +3458,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         ("clima", "Clima"),
         ("datos", "Datos & representación"),
         ("mensual", "Gestión mensual"),
+        ("iot", "Nodo IoT"),
+        ("consola", "Consola"),
     ]
     nav_tabs = "".join(
         f'<button role="tab" class="tab" id="tab-btn-{tid}" '
@@ -3498,6 +3500,24 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             "linkedin": ("https://www.linkedin.com/in/"
                          "diego-alonso-javier-mijahuanca-quispe-5546882aa"),
             "github": GITHUB_REPO,
+        },
+        {
+            "nombre": "Samir Suarez",
+            "rol": "Ing. Mecatrónica · Nodo IoT",
+            "bio": ("Diseño y construcción de la estación IoT: placa en "
+                    "KiCad, integración de sensores (nivel ultrasónico, "
+                    "BME280 y humedad de suelo), energía solar y "
+                    "transmisión LoRa."),
+            "correos": [],
+            "github": GITHUB_REPO,
+        },
+        {
+            "nombre": "Ing. Jorge Zafra",
+            "rol": "Asesor · Hidrólogo (UTEC)",
+            "bio": ("Asesoría hidrológica del proyecto: interpretación de "
+                    "caudales, régimen de la cuenca Chancay-Huaral y "
+                    "validación del enfoque."),
+            "correos": [],
         },
     ]
 
@@ -3999,6 +4019,80 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     </div>
   </section>
 
+  <!-- ══ Pestaña · Nodo IoT ═══════════════════════════════════════════════ -->
+  <section role="tabpanel" id="tab-iot" aria-labelledby="tab-btn-iot"
+           class="tabpanel" tabindex="0" hidden>
+    <div class="tab-body">
+      <header class="tab-head reveal">
+        <p class="eyebrow">Hardware propio del equipo</p>
+        <h2 class="h-serif">El nodo IoT que mide el agua en campo</h2>
+        <p class="prose prose-wide">Una estación autónoma de bajo costo, diseñada y soldada
+        por el equipo: mide el nivel del río, la temperatura, la humedad y la presión, y la
+        humedad del suelo, y transmite por LoRa. El dato que llega de este nodo es el que
+        cierra el lazo: comprueba en el sitio si el caudal real cae dentro de la banda que
+        el modelo anunció días antes.</p>
+      </header>
+      <div class="iot-chips reveal">
+        <span class="iot-chip">Microcontrolador <b>ESP32-SUPERMINI</b></span>
+        <span class="iot-chip">Radio <b>LoRa RFM96W</b></span>
+        <span class="iot-chip">Temp/humedad/presión <b>BME280</b></span>
+        <span class="iot-chip">Nivel <b>ultrasónico</b></span>
+        <span class="iot-chip">Suelo <b>RS485/Modbus</b></span>
+        <span class="iot-chip">Energía <b>18650 + solar 6V/3W</b></span>
+        <span class="iot-chip">Costo <b>S/ 316</b></span>
+        <span class="iot-chip">Reciclado <b>≈65%</b></span>
+      </div>
+      <div class="iot-grid reveal">
+        <figure class="iot-fig"><img src="assets/iot/prototipo_general.jpg" alt="Prototipo del nodo IoT">
+          <figcaption><b>Prototipo real.</b> Carcasa con panel solar y sonda de campo.</figcaption></figure>
+        <figure class="iot-fig"><img src="assets/iot/prototipo_interior.jpg" alt="Interior del nodo">
+          <figcaption><b>Interior.</b> Placa soldada, batería 18650 y convertidor step-up.</figcaption></figure>
+        <figure class="iot-fig"><img src="assets/iot/nodo_ultrasonico.jpg" alt="Nodo con sensor ultrasónico">
+          <figcaption><b>En operación.</b> Sensor de nivel ultrasónico sobre el cauce.</figcaption></figure>
+        <figure class="iot-fig"><img src="assets/iot/nodo_solar.jpg" alt="Nodo con panel solar">
+          <figcaption><b>Autonomía.</b> Panel solar 6V/3W; el nodo duerme entre lecturas.</figcaption></figure>
+        <figure class="iot-fig"><img src="assets/iot/pcb_detalle.jpg" alt="Detalle de la placa">
+          <figcaption><b>Detalle de la placa.</b> ESP32-SUPERMINI, radio LoRa y BME280.</figcaption></figure>
+        <figure class="iot-fig"><img src="assets/iot/render_nodo_nivel.jpg" alt="Render 3D del nodo">
+          <figcaption><b>Modelo 3D.</b> Nodo de nivel ensamblado, diseñado en KiCad.</figcaption></figure>
+      </div>
+      <div class="iot-grid reveal">
+        <figure class="iot-fig wide"><a href="assets/iot/esquema_nivel.png" target="_blank" rel="noopener" title="Abrir el esquema en tamano completo"><img src="assets/iot/esquema_nivel.png" alt="Esquema electrico del nodo de nivel"></a>
+          <figcaption><b>Diagrama electrónico · nodo de NIVEL.</b> Diseño propio en KiCad 9:
+          ESP32-SUPERMINI, LoRa RFM96W-315S2, BME280 por I2C, MOSFETs IRLZ44N para conmutar
+          los periféricos y entrada de panel solar. <b>Clic en el esquema para ampliarlo.</b> <i>El símbolo del esquema figura como
+          BMP280; el componente instalado es el BME280, pin-compatible.</i></figcaption></figure>
+        <figure class="iot-fig wide"><a href="assets/iot/esquema_suelo.png" target="_blank" rel="noopener" title="Abrir el esquema en tamano completo"><img src="assets/iot/esquema_suelo.png" alt="Esquema electrico del nodo de suelo"></a>
+          <figcaption><b>Diagrama electrónico · nodo de SUELO.</b> Variante para riego: sensor
+          de humedad y temperatura de suelo por RS485/Modbus, con alimentación step-up y
+          batería. <b>Clic en el esquema para ampliarlo.</b></figcaption></figure>
+      </div>
+      <p class="nota reveal">Los archivos fuente de KiCad y los modelos 3D están publicados en
+      el repositorio del proyecto, en la carpeta <code>hardware/</code>.</p>
+    </div>
+  </section>
+
+  <!-- ══ Pestaña · Consola de alerta ══════════════════════════════════════ -->
+  <section role="tabpanel" id="tab-consola" aria-labelledby="tab-btn-consola"
+           class="tabpanel" tabindex="0" hidden>
+    <div class="tab-body">
+      <header class="tab-head reveal">
+        <p class="eyebrow">El producto en operación</p>
+        <h2 class="h-serif">Consola de alerta</h2>
+        <p class="prose prose-wide">Así se ve el sistema en una sala de operación: el semáforo
+        de estado, el pronóstico de caudal con su banda de incertidumbre frente al umbral de
+        crecida, la telemetría del nodo en vivo, la verificación in-situ —lo medido contra lo
+        que se pronosticó— y la decisión sugerida para la junta de riego.</p>
+      </header>
+      <div class="consola-wrap reveal">
+        <iframe src="consola.html" title="Consola de alerta HidroAlerta" loading="lazy"></iframe>
+      </div>
+      <p class="nota reveal">Modo demostración: reproduce un evento real de la estación Santo
+      Domingo. En operación, la consola lee la telemetría del nodo en vivo y la superpone al
+      pronóstico vigente.</p>
+    </div>
+  </section>
+
 </main>
 
 <div class="foot-transition" aria-hidden="true"></div>
@@ -4167,6 +4261,31 @@ main {{ display:block; }}
 .tab-body {{ max-width:var(--maxw); margin:0 auto;
   padding:clamp(28px,4vw,52px) var(--pad-x) 40px;
   display:flex; flex-direction:column; gap:clamp(30px,4.4vw,56px); }}
+
+/* ── Nodo IoT (pestaña) ───────────────────────────────────────────── */
+.iot-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; }}
+.iot-fig {{ margin:0; background:var(--surf); border:1px solid var(--border);
+  border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow-sm); }}
+.iot-fig img {{ display:block; width:100%; height:190px; object-fit:cover; background:#eef3f6; }}
+.iot-fig.wide {{ grid-column:1/-1; }}
+.iot-fig.wide a {{ display:block; }}
+.iot-fig.wide img {{ height:auto; max-height:640px; object-fit:contain;
+  background:var(--surf); cursor:zoom-in; transition:opacity .18s ease; }}
+.iot-fig.wide a:hover img {{ opacity:.9; }}
+.iot-fig figcaption {{ padding:10px 14px; font-size:13.5px; color:var(--muted);
+  border-top:1px solid var(--border); }}
+.iot-fig figcaption b {{ color:var(--ink); font-weight:600; }}
+.iot-chips {{ display:flex; flex-wrap:wrap; gap:9px; }}
+.iot-chip {{ font-family:var(--mono); font-size:13px; padding:6px 12px; border-radius:999px;
+  border:1px solid var(--border); background:var(--surf); color:var(--ink);
+  box-shadow:var(--shadow-sm); }}
+.iot-chip b {{ color:var(--accent); font-weight:600; }}
+
+/* ── Consola embebida (pestaña) ───────────────────────────────────── */
+.consola-wrap {{ position:relative; width:100%; aspect-ratio:16/9;
+  border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
+  background:var(--surf); box-shadow:var(--shadow); }}
+.consola-wrap iframe {{ position:absolute; inset:0; width:100%; height:100%; border:0; }}
 
 /* ── Hero (full-bleed, Resumen) ───────────────────────────────────── */
 .hero {{ position:relative; overflow:hidden; isolation:isolate;

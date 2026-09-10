@@ -1,0 +1,164 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Consola de alerta · Chancay-Huaral</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"></script>
+<!-- Firebase opcional (rellenar CFG). En modo demo no se usa. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap">
+<style>
+ :root{--bg:#F7F9FB;--panel:#FFFFFF;--line:#E2E8EE;--ink:#0C1E2A;--mut:#5A6B74;--teal:#1f95ab;--green:#2f9e6b;--purple:#7d54c0;--red:#d1442b;--gold:#b5851a;--sans:'Public Sans',sans-serif;--mono:'IBM Plex Mono',monospace;}
+ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden}
+ #stage{position:fixed;inset:0;overflow:hidden}
+ #app{position:absolute;left:0;top:0;width:1920px;height:1080px;display:grid;grid-template-rows:96px 1fr 300px;gap:16px;padding:18px;box-sizing:border-box;transform-origin:0 0}
+ .bar{display:grid;grid-template-columns:1.4fr auto 1.6fr;align-items:center;gap:20px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:0 26px;box-shadow:0 1px 3px rgba(12,30,42,.05)}
+ .brand{font-family:Fraunces,serif;font-weight:600;font-size:30px}.brand small{display:block;font-family:var(--sans);font-weight:500;font-size:15px;color:var(--mut);letter-spacing:.02em}
+ .semaf{display:flex;align-items:center;gap:14px}.lamp{width:26px;height:26px;border-radius:50%;background:#cdd8dc;box-shadow:0 0 0 3px rgba(12,30,42,.06) inset}
+ .lamp.on{box-shadow:0 0 18px currentColor}.estado{font-weight:700;font-size:26px}
+ .kpis{display:flex;gap:26px;justify-content:flex-end}.kpi .n{font-family:var(--mono);font-weight:600;font-size:30px}.kpi .l{font-size:13px;color:var(--mut)}
+ .kpi .n.red{color:var(--red)}.kpi .n.teal{color:var(--teal)}
+ .mid{display:grid;grid-template-columns:1.55fr 1fr;gap:16px}
+ .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;position:relative;box-shadow:0 1px 3px rgba(12,30,42,.05)}
+ .panel h3{margin:0 0 8px;font-size:16px;letter-spacing:.03em;text-transform:uppercase;color:var(--mut);font-weight:600}
+ #fc{width:100%;height:calc(100% - 34px)}
+ .station{display:grid;grid-template-rows:auto 1fr auto;gap:12px}
+ .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+ .card{background:#F3F7F9;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+ .card .v{font-family:var(--mono);font-weight:600;font-size:34px}.card .k{font-size:13px;color:var(--mut)}
+ .chip{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:14px;padding:5px 12px;border-radius:20px;background:#F3F7F9;border:1px solid var(--line)}
+ .dotlive{width:10px;height:10px;border-radius:50%;background:var(--green);animation:pulse 1.4s infinite}
+ @keyframes pulse{0%{opacity:.3}50%{opacity:1}100%{opacity:.3}}
+ .bot{display:grid;grid-template-columns:1.1fr 1.1fr .9fr;gap:16px}
+ #ver,#men{width:100%;height:calc(100% - 34px)}
+ .motors{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+ .mtag{font-family:var(--mono);font-size:13px;padding:5px 10px;border-radius:10px;border:1px solid var(--line);background:#F3F7F9;color:var(--mut)}
+ .mtag b{color:var(--green)}
+ .decision{font-size:19px;line-height:1.4}.decision b{color:var(--gold)}
+ #hint{display:none;position:fixed;right:14px;bottom:10px;color:#3f5157;font-size:16px;font-family:var(--mono)}
+</style></head>
+<body><div id="stage"><div id="app">
+ <div class="bar">
+   <div class="brand">HidroAlerta · Consola de alerta<small>Cuenca Chancay-Huaral · estación Santo Domingo 47E214D2</small></div>
+   <div class="semaf"><span id="lamp" class="lamp on"></span><span id="estado" class="estado">VIGILANCIA</span></div>
+   <div class="kpis">
+     <div class="kpi"><div id="k_caudal" class="n teal">—</div><div class="l">caudal hoy (m³/s)</div></div>
+     <div class="kpi"><div id="k_prob" class="n red">—</div><div class="l">P(Q≥Q90) próx. 72 h</div></div>
+     <div class="kpi"><div id="k_fecha" class="n">—</div><div class="l">última lectura</div></div>
+   </div>
+ </div>
+ <div class="mid">
+   <div class="panel"><h3>Pronóstico de caudal · 14 días (banda P10–P90) vs umbral Q90</h3><div id="fc"></div></div>
+   <div class="panel station"><h3>Estación en vivo <span id="modo" class="chip"><span class="dotlive"></span>MODO DEMO</span></h3>
+     <div class="cards">
+       <div class="card"><div id="s_nivel" class="v teal">—</div><div class="k">nivel (m)</div></div>
+       <div class="card"><div id="s_caudal" class="v">—</div><div class="k">caudal (m³/s)</div></div>
+       <div class="card"><div id="s_temp" class="v">—</div><div class="k">temperatura (°C)</div></div>
+       <div class="card"><div id="s_turb" class="v gold">—</div><div class="k">humedad suelo (%)</div></div>
+     </div>
+     <div id="spark" style="width:100%;height:120px"></div>
+     <div class="motors">
+       <span class="mtag">Motor A · nowcast <b>✓</b></span><span class="mtag">Motor B · subestacional <b>✓</b></span>
+       <span class="mtag">Compuerta: <b id="gate">telemetría OK</b></span><span class="mtag">batería <span id="s_bat">—</span> V · señal <span id="s_rssi">—</span></span>
+     </div>
+   </div>
+ </div>
+ <div class="bot">
+   <div class="panel"><h3>Verificación in-situ · medido vs pronosticado</h3><div id="ver"></div></div>
+   <div class="panel"><h3>Disponibilidad mensual (para riego)</h3><div id="men"></div></div>
+   <div class="panel"><h3>Decisión sugerida</h3>
+     <div id="decision" class="decision">—</div>
+   </div>
+ </div>
+</div></div><div id="hint">R = reiniciar demo</div>
+<script>
+const D={"ev": {"date": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-06", "2024-01-07", "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12", "2024-01-13", "2024-01-14", "2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19", "2024-01-20", "2024-01-21", "2024-01-22", "2024-01-23", "2024-01-24", "2024-01-25", "2024-01-26", "2024-01-27", "2024-01-28", "2024-01-29", "2024-01-30", "2024-01-31", "2024-02-01", "2024-02-02", "2024-02-03", "2024-02-04", "2024-02-05", "2024-02-06", "2024-02-07", "2024-02-08", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-02-13", "2024-02-14", "2024-02-15", "2024-02-16", "2024-02-17", "2024-02-18", "2024-02-19", "2024-02-20", "2024-02-21", "2024-02-22", "2024-02-23", "2024-02-24", "2024-02-25", "2024-02-26", "2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01", "2024-03-02", "2024-03-03", "2024-03-04", "2024-03-05", "2024-03-06", "2024-03-07", "2024-03-08", "2024-03-09", "2024-03-10", "2024-03-11", "2024-03-12", "2024-03-13", "2024-03-14", "2024-03-15", "2024-03-16", "2024-03-17", "2024-03-18", "2024-03-19", "2024-03-20"], "obs": [null, null, null, null, null, null, null, null, 26.84, 31.85, 29.59, 33.9, 34.28, 37.83, 36.27, 31.65, 34.54, 38.96, 37.17, 33.81, 33.03, 34.86, 32.32, 32.86, 32.67, 35.08, 34.18, 32.7, 40.3, 49.22, 42.82, 51.52, 56.68, 47.92, 39.58, 37.78, 33.96, 31.39, 30.74, 29.53, 27.51, 25.0, 23.97, 23.97, 22.27, 23.0, 21.46, 20.71, 22.2, 26.85, 25.9, 30.23, 25.74, 23.19, 21.68, 20.78, 29.61, 31.54, 34.07, 38.16, 42.19, 44.57, 41.91, 38.47, 34.4, 31.51, 28.53, 28.62, 27.82, 26.02, 25.3, 26.61, 23.65, 21.07, 19.57, 18.34, 20.04, 19.79, 23.43, 27.17], "p10": [11.190716, 11.46742, 8.358286, 11.728808, 13.560043, 16.950605, 22.934225, 24.22978, 24.609327, 25.07518, 24.299845, 23.494741, 22.330297, 21.495855, 21.556906, 22.732615, 23.755402, 23.597815, 23.97818, 24.185846, 24.400015, 24.165628, 23.362185, 23.098608, 23.240042, 22.993174, 22.320587, 21.932203, 21.706526, 21.194855, 20.89089, 20.419916, 20.309896, 19.909134, 19.24625, 19.01931, 20.158789, 19.52159, 20.761518, 22.4997, 22.061052, 21.595139, 20.44128, 18.874163, 18.081713, 17.871782, 17.453184, 16.649765, 16.069124, 15.837555, 15.6363945, 16.048487, 15.56556, 15.926112, 15.100183, 15.58226, 16.49199, 16.42925, 16.86655, 16.098703, 16.27456, 15.873879, 18.583134, 19.48522, 19.562914, 22.318481, 25.844824, 24.449545, 24.695267, 23.548037, 22.401209, 20.677202, 19.3823, 18.751038, 19.278631, 18.776125, 18.192045, 18.626884, 18.684866, 17.914122], "p50": [18.754194, 19.07831, 14.515986, 19.859716, 22.904448, 28.415354, 37.297405, 38.987442, 39.323147, 39.937046, 38.819653, 37.702393, 36.000515, 34.703373, 35.309002, 37.26318, 38.263805, 38.475292, 38.938602, 39.136585, 39.520992, 38.76244, 37.842197, 37.73862, 37.864758, 37.5582, 36.69045, 36.106297, 35.85248, 35.275295, 34.519962, 34.016697, 33.955082, 33.4844, 32.88548, 32.88754, 34.15708, 33.7041, 35.562683, 36.802605, 35.607456, 35.134148, 33.19125, 30.917864, 29.786661, 29.54358, 29.030684, 27.825724, 26.891373, 26.964943, 26.807924, 28.23555, 27.157297, 28.306799, 25.972397, 27.01716, 29.512701, 28.780533, 29.03193, 27.654444, 27.982325, 27.478638, 32.896408, 33.251152, 32.74683, 37.240097, 42.369858, 39.443775, 39.64356, 37.83562, 35.918354, 33.13632, 30.941895, 29.75709, 30.32683, 29.15075, 27.837885, 28.081734, 27.846125, 26.232538], "p90": [26.246618, 26.625017, 20.718805, 27.906809, 32.006573, 39.467266, 51.058365, 53.14343, 53.425568, 54.124176, 52.58856, 51.093582, 48.888073, 47.1938, 48.27718, 50.956005, 51.961895, 52.526028, 53.086803, 53.30069, 53.87057, 52.644283, 51.667767, 51.775646, 51.962, 51.66785, 50.69121, 49.997498, 49.798023, 49.23879, 48.096237, 47.673573, 47.738613, 47.281643, 46.829407, 47.11983, 48.61011, 48.378635, 50.87509, 51.69067, 49.765827, 49.35857, 46.60763, 43.635014, 42.17911, 41.925617, 41.33794, 39.746094, 38.452778, 38.85115, 38.764233, 41.308064, 39.602997, 41.632328, 37.68572, 39.314667, 43.55778, 42.114502, 42.14452, 40.115314, 40.596523, 39.98756, 48.234776, 48.04942, 46.882793, 53.099224, 59.85567, 55.388813, 55.497143, 52.99692, 50.28067, 46.394268, 43.244015, 41.449486, 42.018326, 40.12531, 38.01659, 38.00897, 37.441963, 34.910175]}, "men": {"date": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01", "2025-06-01", "2025-07-01", "2025-08-01", "2025-09-01", "2025-10-01", "2025-11-01", "2025-12-01", "2026-01-01"], "obs": [null, null, null, null, null, null, null, null, 13.119, 9.665, 7.859, null], "p50": [25.529, 47.281, 25.521, 10.228, 7.847, 6.843, 6.87, 6.923, 6.685, 5.942, 10.017, 12.803], "p10": [17.888, 29.672, 17.584, 8.524, 6.113, 5.638, 5.924, 5.839, 4.645, 4.611, 3.105, 4.603], "p90": [40.813, 71.447, 48.669, 11.089, 8.453, 7.448, 7.565, 11.089, 11.528, 9.995, 16.775, 23.338], "clim": [26.182, 32.29, 22.803, 9.868, 6.899, 5.968, 6.299, 6.29, 6.063, 7.981, 10.353, 14.34]}, "Q90": 40.89}; const Q90=D.Q90;
+const C={bg:'#F7F9FB',ink:'#0C1E2A',mut:'#5A6B74',teal:'#1f95ab',green:'#2f9e6b',red:'#d1442b',gold:'#b5851a',band:'rgba(47,158,107,0.16)'};
+const PLBASE={paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',font:{color:C.mut,family:'IBM Plex Mono',size:13},
+  margin:{l:46,r:12,t:6,b:28},xaxis:{gridcolor:'rgba(12,30,42,.08)'},yaxis:{gridcolor:'rgba(12,30,42,.08)'},showlegend:false};
+// --- forecast chart (event window) ---
+function drawFC(upto){
+ const d=D.ev, x=d.date;
+ const band={x:x.concat([...x].reverse()),y:d.p90.concat([...d.p10].reverse()),fill:'toself',fillcolor:C.band,line:{width:0},hoverinfo:'skip'};
+ const p50={x:x,y:d.p50,mode:'lines',line:{color:C.green,width:2,dash:'dot'}};
+ const obsX=x.slice(0,upto+1),obsY=d.obs.slice(0,upto+1);
+ const obs={x:obsX,y:obsY,mode:'lines+markers',line:{color:C.ink,width:3},marker:{size:5,color:obsY.map((v,i)=> v!=null&&v>d.p90[i]?C.red:C.ink)}};
+ const q90={x:[x[0],x[x.length-1]],y:[Q90,Q90],mode:'lines',line:{color:C.red,width:2,dash:'dash'}};
+ const today=x[upto]?{x:[x[upto],x[upto]],y:[0,64],mode:'lines',line:{color:'rgba(12,30,42,.30)',width:1.5,dash:'dot'}}:null;
+ const data=[band,p50,q90,obs]; if(today)data.push(today);
+ Plotly.react('fc',data,Object.assign({},PLBASE,{yaxis:Object.assign({range:[0,64],title:''},PLBASE.yaxis)}),{displayModeBar:false,responsive:true});
+}
+function drawVer(upto){
+ const d=D.ev,a=Math.max(0,upto-13),x=d.date.slice(a,upto+1);
+ const med={x:x,y:d.p50.slice(a,upto+1),mode:'lines',name:'pronóstico',line:{color:C.green,width:2}};
+ const ob={x:x,y:d.obs.slice(a,upto+1),mode:'lines+markers',name:'medido',line:{color:C.ink,width:2},marker:{size:4}};
+ Plotly.react('ver',[med,ob],Object.assign({},PLBASE,{margin:{l:40,r:10,t:6,b:24}}),{displayModeBar:false,responsive:true});
+}
+function drawMen(){ if(!D.men){document.getElementById('men').innerHTML='<div style="color:#5A6B74">—</div>';return;}
+ const m=D.men,x=m.date;
+ const band={x:x.concat([...x].reverse()),y:m.p90.concat([...m.p10].reverse()),fill:'toself',fillcolor:'rgba(70,184,204,.18)',line:{width:0},hoverinfo:'skip'};
+ const p50={x:x,y:m.p50,mode:'lines+markers',line:{color:C.teal,width:2},marker:{size:4}};
+ const cl={x:x,y:m.clim,mode:'lines',line:{color:C.gold,width:1.5,dash:'dot'}};
+ Plotly.react('men',[band,cl,p50],Object.assign({},PLBASE,{margin:{l:40,r:10,t:6,b:24}}),{displayModeBar:false,responsive:true});
+}
+function drawSpark(upto){ const d=D.ev,a=Math.max(0,upto-20),x=d.date.slice(a,upto+1),y=d.obs.slice(a,upto+1);
+ Plotly.react('spark',[{x:x,y:y,mode:'lines',line:{color:C.teal,width:2.5},fill:'tozeroy',fillcolor:'rgba(70,184,204,.12)'}],
+  {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',margin:{l:4,r:4,t:4,b:4},xaxis:{visible:false},yaxis:{visible:false},showlegend:false},{displayModeBar:false});
+}
+// --- update station + KPIs from a reading ---
+function setReading(idx){
+ const d=D.ev, o=d.obs[idx]; if(o==null) return;
+ const nivel=(o/28).toFixed(2);            // proxy nivel (demo)
+ const temp=(19+2*Math.sin(idx/6)).toFixed(1);
+ const suelo=Math.max(25,Math.min(60,Math.round(30+o*0.25))); // humedad de suelo % (demo: sube con la escorrentía)
+ document.getElementById('s_nivel').textContent=nivel;
+ document.getElementById('s_caudal').textContent=o.toFixed(1);
+ document.getElementById('s_temp').textContent=temp;
+ document.getElementById('s_turb').textContent=suelo;
+ document.getElementById('s_bat').textContent=(3.9-0.0003*idx).toFixed(2);
+ document.getElementById('s_rssi').textContent=(-82-(idx%8));
+ document.getElementById('k_caudal').textContent=o.toFixed(1);
+ document.getElementById('k_fecha').textContent=d.date[idx].slice(5);
+ // prob excedencia 72h: fraccion de band cuya p90 supera Q90 en +1..+3
+ let ex=0,c=0; for(let h=1;h<=3;h++){const j=idx+h; if(j<d.p90.length){c++; if(d.p90[j]>Q90) ex+= Math.min(1,(d.p90[j]-Q90)/(d.p90[j]-d.p10[j]+1e-6));}}
+ const prob=c?Math.round(100*ex/c):0; document.getElementById('k_prob').textContent=prob+'%';
+ // semaforo
+ const lamp=document.getElementById('lamp'),est=document.getElementById('estado');
+ let col=C.green,txt='NORMAL'; if(prob>=60||o>=Q90){col=C.red;txt='ALERTA';} else if(prob>=25||o>=0.8*Q90){col=C.gold;txt='VIGILANCIA';}
+ lamp.style.color=col; lamp.style.background=col; est.textContent=txt; est.style.color=col;
+ document.getElementById('decision').innerHTML = txt==='ALERTA'
+   ? 'Nivel/pronóstico cerca o sobre <b>Q90 (40,9 m³/s)</b>. <b>Preparar cierre de captación</b> y avisar a la junta de riego y defensa civil.'
+   : (txt==='VIGILANCIA'? 'Riesgo moderado a 72 h. <b>Vigilar</b> la estación y el pronóstico; pre-posicionar recursos.'
+      : 'Sin riesgo inmediato. Operación normal; usar el pronóstico mensual para programar el riego.');
+}
+// --- demo replay ---
+let ptr=8, timer=null;
+function firstObs(){for(let i=0;i<D.ev.obs.length;i++) if(D.ev.obs[i]!=null) return i; return 0;}
+function tick(){ drawFC(ptr); drawVer(ptr); drawSpark(ptr); setReading(ptr); ptr++; if(ptr>=D.ev.obs.length) ptr=firstObs(); }
+function startDemo(){ ptr=firstObs(); drawMen(); if(timer)clearInterval(timer); tick(); timer=setInterval(tick,1400); }
+// --- Firebase (si CFG.databaseURL, cambia a EN VIVO) ---
+const CFG={databaseURL:"",device:"est_santo_domingo_01"}; // <-- rellenar databaseURL para modo EN VIVO
+function startLive(){
+ try{ firebase.initializeApp({databaseURL:CFG.databaseURL});
+   document.getElementById('modo').innerHTML='<span class="dotlive"></span>EN VIVO';
+   drawMen();
+   firebase.database().ref('telemetria/'+CFG.device+'/latest').on('value',s=>{ const r=s.val(); if(!r)return;
+     document.getElementById('s_nivel').textContent=(r.nivel_cm/100).toFixed(2);
+     document.getElementById('s_temp').textContent=(r.temp_c??'—');
+     document.getElementById('s_turb').textContent=(r.suelo??'—');
+     document.getElementById('s_bat').textContent=(r.bateria_v??'—');
+     document.getElementById('s_rssi').textContent=(r.rssi??'—');
+     document.getElementById('k_fecha').textContent=(r.ts||'').slice(11,16);
+   });
+ }catch(e){ startDemo(); }
+}
+function start(){ if(CFG.databaseURL) startLive(); else startDemo(); }
+function fit(){var s=Math.min(innerWidth/1920,innerHeight/1080);var a=document.getElementById('app');if(!a)return;var tx=(innerWidth-1920*s)/2, ty=(innerHeight-1080*s)/2;a.style.transform='translate('+tx+'px,'+ty+'px) scale('+s+')';}
+function whenReady(cb){ if(window.Plotly){cb();return;} let n=0; const iv=setInterval(()=>{ if(window.Plotly||n++>300){clearInterval(iv);cb();} },50); }
+function boot(){ fit(); whenReady(start);
+ // el iframe del dashboard puede cambiar de tamano despues del load:
+ [120,400,900,1800].forEach(function(t){setTimeout(fit,t);});
+ try{ new ResizeObserver(fit).observe(document.documentElement); }catch(e){}
+}
+addEventListener('resize',fit);
+document.addEventListener('keydown',e=>{if(e.key==='r'||e.key==='R') start(); if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}});
+if(document.readyState!=='loading') boot(); else document.addEventListener('DOMContentLoaded',boot);
+</script></body></html>
