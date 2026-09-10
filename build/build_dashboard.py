@@ -1127,12 +1127,14 @@ def bloque_serie_interactiva(cfg_json: str) -> str:
     """
 
 
-# Orden y color de las barras de habilidad (lee metricas_modelos.csv, que usa
-# el nombre interno "RA-TFT"; en el eje se muestra como "RA-TFT").
-ORDEN_MODELO = ["Persistencia", "LightGBM", "HydroST", "RA-TFT"]
-ETIQUETA_MODELO = {"RA-TFT": "RA-TFT"}
+# Orden y color de las barras de habilidad (lee metricas_modelos.csv).
+# El modelo vigente es el TFT canónico con núcleo GRU; el RA-TFT es la
+# generación anterior y se conserva para que se vea la mejora.
+ORDEN_MODELO = ["Persistencia", "LightGBM", "HydroST", "RA-TFT", "canónico+GRU"]
+ETIQUETA_MODELO = {"canónico+GRU": "TFT canónico+GRU", "RA-TFT": "RA-TFT (previo)"}
 COL_MODELO = {
-    "RA-TFT": COL_ACCENT,
+    "canónico+GRU": COL_ACCENT,
+    "RA-TFT": "#7FA8B8",
     "HydroST": COL_DEEP,
     "LightGBM": "#8FA6B4",
     "Persistencia": "#B7C2CC",
@@ -1143,7 +1145,7 @@ def construir_animacion(metr: pd.DataFrame) -> str:
     """Barras de NSE por modelo que se actualizan al mover el slider de horizonte.
 
     Mensaje: la Persistencia (baseline naive) decae con el horizonte, mientras
-    que el RA-TFT sostiene mejor la habilidad a multi-día.
+    que el modelo vigente (TFT canónico+GRU) sostiene mejor la habilidad a multi-día.
     """
     leads = sorted(metr["lead"].unique())
     modelos = [m for m in ORDEN_MODELO if m in set(metr["model"])]
@@ -1500,8 +1502,8 @@ def construir_dominio_validez() -> str:
         </div>
         <div class="dom-seg dom-seg-star" style="flex:1.6;--c:#0B6E8C">
           <span class="dom-h">3–14 días</span>
-          <span class="dom-tool">Tendencia + prob. de excedencia · RA-TFT</span>
-          <span class="dom-ev">único con habilidad sostenida (NSE 0,83→0,49); sin
+          <span class="dom-tool">Tendencia + prob. de excedencia · TFT canónico+GRU</span>
+          <span class="dom-ev">único con habilidad sostenida (NSE 0,88→0,76); sin
           desfase efectivo a 7 días</span>
         </div>
         <div class="dom-seg" style="flex:1.3;--c:#1BA8C4">
@@ -1585,10 +1587,10 @@ def construir_radar_modelos(metr: pd.DataFrame) -> str:
                     mae_min / r["MAE"],
                     0 if pd.isna(r["CRPS"]) else crps_min / r["CRPS"],
                     r["POD"], 0 if sin_alerta else 1 - r["FAR"], r["CSI"]]
-            es_prop = (mod == "RA-TFT")
+            es_prop = (mod == "canónico+GRU")
             fig.add_trace(go.Scatterpolar(
                 r=vals + vals[:1], theta=ejes + ejes[:1],
-                name=mod, legendgroup=mod, showlegend=(ci == 1),
+                name=ETIQUETA_MODELO.get(mod, mod), legendgroup=mod, showlegend=(ci == 1),
                 line=dict(color=COL_MODELO.get(mod, COL_MUTED),
                           width=2.6 if es_prop else 1.4),
                 fill="toself" if es_prop else None,
@@ -1656,9 +1658,10 @@ def construir_cdf_errores(fcast: pd.DataFrame) -> str:
 def construir_dotplot_horizonte(metr: pd.DataFrame) -> str:
     """Dotplot de Cleveland (patrón «curvas» de Guerra): una fila por horizonte, un
     punto por modelo en x=NSE, conector gris por fila y Δ del modelo propuesto vs el
-    mejor baseline anotado a la derecha. Presupuesto de color: solo RA-TFT lleva
+    mejor baseline anotado a la derecha. Presupuesto de color: solo el modelo vigente lleva
     color; los baselines van en grises con símbolo propio (legibles sin color)."""
-    leads = [1, 2, 3, 5, 7, 14]
+    # Horizontes del banco de pruebas comun a todos los modelos comparados.
+    leads = [1, 3, 7, 14]
     labs = [f"{ld} día" if ld == 1 else f"{ld} días" for ld in leads]
     piv = metr.pivot_table(index="lead", columns="model", values="NSE")
     fig = go.Figure()
@@ -1672,22 +1675,23 @@ def construir_dotplot_horizonte(metr: pd.DataFrame) -> str:
     estilos_mod = [("Persistencia", "#5B6B78", "circle-open"),
                    ("LightGBM", "#98A6B1", "diamond"),
                    ("HydroST", "#98A6B1", "square"),
-                   ("RA-TFT", COL_ACCENT, "circle")]
+                   ("RA-TFT", "#7FA8B8", "circle-open"),
+                   ("canónico+GRU", COL_ACCENT, "circle")]
     for mod, color, sym in estilos_mod:
         if mod not in piv.columns:
             continue
-        es_prop = (mod == "RA-TFT")
+        es_prop = (mod == "canónico+GRU")
         fig.add_trace(go.Scatter(
             x=[piv.loc[ld, mod] for ld in leads], y=labs,
-            mode="markers", name=mod,
+            mode="markers", name=ETIQUETA_MODELO.get(mod, mod),
             marker=dict(color=color, symbol=sym, size=13 if es_prop else 10,
                         line=dict(color="#FFFFFF" if es_prop else color,
                                   width=1.5 if es_prop else 1)),
-            hovertemplate=mod + " · NSE %{x:.3f}<extra></extra>"))
+            hovertemplate=ETIQUETA_MODELO.get(mod, mod) + " · NSE %{x:.3f}<extra></extra>"))
     # Δ vs mejor baseline, anotado por fila (el argumento en el propio gráfico)
     for ld, lab in zip(leads, labs):
-        base = piv.loc[ld].drop("RA-TFT", errors="ignore").max()
-        prop = piv.loc[ld].get("RA-TFT")
+        base = piv.loc[ld].drop("canónico+GRU", errors="ignore").max()
+        prop = piv.loc[ld].get("canónico+GRU")
         if pd.isna(prop) or pd.isna(base):
             continue
         d = prop - base
@@ -1755,7 +1759,7 @@ def tabla_metricas_html(metr: pd.DataFrame) -> str:
                 f"<span class='lead-lab'>{LABEL_LEAD[lead]}</span>"
                 f"<span class='lead-n'>N = {int(r['N'])}</span></td>"
                 if first else "")
-            es_prop = r["model"] == "RA-TFT"
+            es_prop = r["model"] == "canónico+GRU"
             es_base = r["model"] == "Persistencia"
             cls_mod = "modelo"
             if es_prop:
@@ -2496,10 +2500,10 @@ def kpi_cards(serie: pd.DataFrame, metr: pd.DataFrame) -> str:
     """Fila de indicadores editoriales: números mono grandes separados por
     hairlines (sin cajas). El estado (agua vs. crítico) se codifica en el color
     del número y una pequeña etiqueta, no en un borde de tarjeta.
-    Valores del modelo PROPUESTO (RA-TFT) a 1 día, tomados de metricas_modelos.csv
+    Valores del modelo PROPUESTO (canónico+GRU) a 1 día, tomados de metricas_modelos.csv
     (misma fuente que la tabla de Modelos y la banda de resultados → sin contradicciones)."""
     dias_alerta = int((serie["obs"] >= UMBRAL_Q90).sum())
-    r = metr[metr["model"] == "RA-TFT"].set_index("lead")
+    r = metr[metr["model"] == "canónico+GRU"].set_index("lead")
     def g(ld, c):
         try: return float(r.loc[ld, c])
         except Exception: return float("nan")
@@ -2507,7 +2511,7 @@ def kpi_cards(serie: pd.DataFrame, metr: pd.DataFrame) -> str:
     indicadores = [
         # (etiqueta, valor, unidad, descripción, estado)
         ("NSE · 1 día", f"{nse1:.2f}", "", "Eficiencia Nash–Sutcliffe del modelo "
-         "propuesto (RA-TFT) a un día de horizonte", "acc"),
+         "propuesto (TFT canónico+GRU) a un día de horizonte", "acc"),
         ("POD · 1 día", f"{pod1:.2f}", "", "Probabilidad de detección de crecidas "
          "(umbral de vigilancia P90) del modelo propuesto a un día", "acc"),
         ("FAR · 1 día", f"{far1:.2f}", "", "Tasa de falsas alarmas (umbral de "
@@ -2919,7 +2923,7 @@ def construir_leaderboard_recorrido(metr: pd.DataFrame) -> str:
         sub = metr[metr["model"] == mod].set_index("lead")
         ys = [float(sub.loc[ld, "NSE"]) if ld in sub.index else None
               for ld in leads]
-        es_prop = (mod == "RA-TFT")
+        es_prop = (mod == "canónico+GRU")
         fig.add_trace(go.Scatter(
             x=leads, y=ys, mode="lines+markers",
             line=dict(color=COL_MODELO_DARK.get(mod, "#1BA8C4"),
@@ -3809,7 +3813,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <p class="eyebrow">El argumento · habilidad según horizonte</p>
         <h2 class="h-serif">A más días de anticipación, más ventaja del modelo</h2>
         <p class="prose prose-wide">Un punto por modelo y horizonte (NSE; derecha =
-        mejor). A 1 día todos rozan el techo de la persistencia; desde <b>3–5 días</b>
+        mejor). A 1 día todos rozan el techo de la persistencia; desde <b>3 días</b>
         el modelo propuesto (en color) se despega y a <b>7–14 días</b> es el único que
         sostiene la habilidad. La cifra verde es su ventaja sobre el mejor baseline.</p>
       </header>
@@ -4042,6 +4046,16 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <span class="iot-chip">Costo <b>S/ 316</b></span>
         <span class="iot-chip">Reciclado <b>≈65%</b></span>
       </div>
+      <div class="iot-3d reveal">
+        <div class="iot-3d-stage" id="iot3d-stage">
+          <img class="iot-3d-poster" id="iot3d-poster" src="assets/iot/render_nodo_nivel.jpg"
+               alt="Modelo tridimensional del nodo IoT">
+          <span class="iot-3d-hint" id="iot3d-hint">Cargando el modelo 3D…</span>
+        </div>
+        <p class="nota iot-3d-cap">Modelo real del nodo, exportado desde KiCad · arrastra para girar,
+        rueda del ratón para acercar.</p>
+      </div>
+
       <div class="iot-grid reveal">
         <figure class="iot-fig"><img src="assets/iot/prototipo_general.jpg" alt="Prototipo del nodo IoT">
           <figcaption><b>Prototipo real.</b> Carcasa con panel solar y sonda de campo.</figcaption></figure>
@@ -4056,16 +4070,6 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <figure class="iot-fig"><img src="assets/iot/render_nodo_nivel.jpg" alt="Render 3D del nodo">
           <figcaption><b>Modelo 3D.</b> Nodo de nivel ensamblado, diseñado en KiCad.</figcaption></figure>
       </div>
-      <div class="iot-3d reveal">
-        <div class="iot-3d-stage" id="iot3d-stage">
-          <img class="iot-3d-poster" id="iot3d-poster" src="assets/iot/render_nodo_nivel.jpg"
-               alt="Modelo tridimensional del nodo IoT">
-          <button class="iot-3d-btn" id="iot3d-btn" type="button">Ver el modelo 3D del nodo</button>
-        </div>
-        <p class="nota">Modelo real del nodo de nivel, exportado desde KiCad. Arrastra para girar ·
-        rueda del ratón para acercar. Se descarga solo al pulsar el botón.</p>
-      </div>
-
       <div class="iot-grid reveal">
         <figure class="iot-fig wide"><a href="assets/iot/esquema_nivel.png" target="_blank" rel="noopener" title="Abrir el esquema en tamano completo"><img src="assets/iot/esquema_nivel.png" alt="Esquema electrico del nodo de nivel"></a>
           <figcaption><b>Diagrama electrónico · nodo de NIVEL.</b> Diseño propio en KiCad 9:
@@ -4297,19 +4301,25 @@ main {{ display:block; }}
   background:var(--surf); box-shadow:var(--shadow); }}
 .consola-wrap iframe {{ position:absolute; inset:0; width:100%; height:100%; border:0; }}
 
-/* ── Visor 3D del nodo (pestaña IoT) ──────────────────────────────── */
-.iot-3d-stage {{ position:relative; width:100%; aspect-ratio:16/10;
-  border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;
-  background:#0e1a20; box-shadow:var(--shadow-sm);
-  display:flex; align-items:center; justify-content:center; }}
+/* ── Visor 3D del nodo (pestaña IoT) ──────────────────────────────────
+   Pieza inmersiva: sin tarjeta ni marco, el modelo flota sobre el papel
+   del reportaje. Se sangra a los lados para ganar presencia. */
+.iot-3d {{ position:relative; margin:6px calc(-1 * clamp(10px,3vw,60px)) 0; }}
+.iot-3d-stage {{ position:relative; width:100%; aspect-ratio:16/8.5;
+  min-height:420px; overflow:hidden; background:transparent;
+  display:flex; align-items:center; justify-content:center;
+  -webkit-mask-image:radial-gradient(120% 100% at 50% 45%, #000 62%, transparent 100%);
+  mask-image:radial-gradient(120% 100% at 50% 45%, #000 62%, transparent 100%); }}
 .iot-3d-stage canvas {{ display:block; width:100%; height:100%; }}
 .iot-3d-poster {{ position:absolute; inset:0; width:100%; height:100%;
-  object-fit:contain; opacity:.42; }}
-.iot-3d-btn {{ position:relative; z-index:2; font-family:var(--sans); font-size:15px;
-  font-weight:600; color:#fff; background:var(--accent); border:0; border-radius:999px;
-  padding:12px 26px; cursor:pointer; box-shadow:0 6px 20px rgba(12,30,42,.30); }}
-.iot-3d-btn:hover {{ background:var(--deep); }}
-.iot-3d-btn:disabled {{ opacity:.8; cursor:progress; }}
+  object-fit:contain; opacity:.30; filter:saturate(.6); transition:opacity .5s ease; }}
+.iot-3d-hint {{ position:absolute; z-index:2; font-family:var(--mono); font-size:12.5px;
+  letter-spacing:.04em; text-transform:uppercase; color:var(--muted);
+  background:rgba(247,249,251,.82); border:1px solid var(--border);
+  border-radius:999px; padding:8px 16px; backdrop-filter:blur(4px);
+  pointer-events:none; transition:opacity .5s ease; }}
+.iot-3d-stage.is-ready .iot-3d-hint {{ opacity:0; }}
+.iot-3d-cap {{ text-align:center; margin-top:-6px; }}
 
 /* ── Hero (full-bleed, Resumen) ───────────────────────────────────── */
 .hero {{ position:relative; overflow:hidden; isolation:isolate;
@@ -5134,20 +5144,21 @@ td.chip-best::after {{ content:""; position:absolute; inset:4px 6px;
 
 # ── Script de interacción (reveal on load/scroll, respeta reduced-motion) ─────
 JS_IOT3D = """
-/* Visor 3D del nodo IoT. Carga perezosa: three.js y el modelo VRML (4,6 MB)
-   solo se descargan cuando la persona pulsa el boton, para no penalizar la
-   carga inicial del reportaje. */
+/* Visor 3D del nodo IoT, integrado en el papel del reportaje.
+   Se activa solo cuando el bloque entra en pantalla (la pestaña IoT), de modo
+   que three.js y el modelo (4,6 MB) no lastran la carga inicial. El lienzo es
+   transparente: el modelo flota sobre el fondo claro, sin marco ni caja. */
 (function(){
-  var btn = document.getElementById('iot3d-btn');
   var host = document.getElementById('iot3d-stage');
-  if (!btn || !host) return;
+  var hint = document.getElementById('iot3d-hint');
+  if (!host || !('IntersectionObserver' in window)) return;
   var started = false;
 
-  btn.addEventListener('click', function(){
+  function fallar(txt){ if (hint) hint.textContent = txt; }
+
+  function arrancar(){
     if (started) return;
     started = true;
-    btn.disabled = true;
-    btn.textContent = 'Cargando modelo\u2026';
 
     var CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.0/';
     Promise.all([
@@ -5159,25 +5170,29 @@ JS_IOT3D = """
       var VRMLLoader = mods[1].VRMLLoader;
       var OrbitControls = mods[2].OrbitControls;
 
-      function W(){ return host.clientWidth || 800; }
-      function H(){ return host.clientHeight || 500; }
+      function W(){ return host.clientWidth || 900; }
+      function H(){ return host.clientHeight || 460; }
 
-      var scene = new THREE.Scene();
-      scene.background = new THREE.Color('#0e1a20');
-      var camera = new THREE.PerspectiveCamera(42, W()/H(), 0.1, 100000);
-      var renderer = new THREE.WebGLRenderer({ antialias:true });
+      var scene = new THREE.Scene();            // sin background: lienzo transparente
+      var camera = new THREE.PerspectiveCamera(38, W()/H(), 0.1, 100000);
+      var renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(W(), H());
+      renderer.setClearAlpha(0);
       host.appendChild(renderer.domElement);
 
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4a55, 2.4));
-      var key = new THREE.DirectionalLight(0xffffff, 1.7); key.position.set(1, 1.4, 1); scene.add(key);
-      var fill = new THREE.DirectionalLight(0xbfe6f2, 0.8); fill.position.set(-1, -0.4, -0.9); scene.add(fill);
+      /* Luz pensada para fondo CLARO: mucho relleno hemisférico para que la
+         placa no se lea apagada, y dos direccionales suaves para el relieve. */
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xd6e2e8, 3.1));
+      scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+      var key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(1, 1.5, 1.1); scene.add(key);
+      var rim = new THREE.DirectionalLight(0xdff0f7, 0.9); rim.position.set(-1.2, 0.4, -1); scene.add(rim);
 
       var controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.autoRotate = true;
-      controls.autoRotateSpeed = 1.0;
+      controls.autoRotateSpeed = 0.9;
+      controls.enablePan = false;
 
       new VRMLLoader().load('assets/iot/nodo_nivel.wrl', function(obj){
         var box = new THREE.Box3().setFromObject(obj);
@@ -5185,32 +5200,33 @@ JS_IOT3D = """
         var center = box.getCenter(new THREE.Vector3());
         obj.position.sub(center);
         var radius = Math.max(size.x, size.y, size.z) || 1;
-        camera.position.set(radius * 0.85, radius * 0.70, radius * 1.25);
+        /* Distancia = radio de la esfera envolvente / tan(FOV/2), con holgura
+           extra porque la mascara radial difumina los bordes del lienzo. */
+        camera.position.set(radius * 0.86, radius * 0.70, radius * 1.30);
         camera.near = radius / 200; camera.far = radius * 40;
         camera.updateProjectionMatrix();
         controls.target.set(0, 0, 0);
-        controls.minDistance = radius * 0.35;
-        controls.maxDistance = radius * 4;
+        controls.minDistance = radius * 0.60;
+        controls.maxDistance = radius * 5.0;
         controls.update();
         scene.add(obj);
         var poster = document.getElementById('iot3d-poster');
-        if (poster) poster.style.display = 'none';
-        btn.style.display = 'none';
+        if (poster) poster.style.opacity = '0';
         host.classList.add('is-ready');
-      }, null, function(){
-        btn.disabled = false;
-        btn.textContent = 'No se pudo cargar el modelo 3D';
-      });
+      }, null, function(){ fallar('No se pudo cargar el modelo 3D'); });
 
       window.addEventListener('resize', function(){
         camera.aspect = W()/H(); camera.updateProjectionMatrix(); renderer.setSize(W(), H());
       });
       (function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
-    }).catch(function(){
-      btn.disabled = false;
-      btn.textContent = 'No se pudo cargar el visor 3D';
+    }).catch(function(){ fallar('No se pudo cargar el visor 3D'); });
+  }
+
+  new IntersectionObserver(function(entradas, obs){
+    entradas.forEach(function(e){
+      if (e.isIntersecting){ obs.disconnect(); arrancar(); }
     });
-  });
+  }, { rootMargin: '200px' }).observe(host);
 })();
 """
 
