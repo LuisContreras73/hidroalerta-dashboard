@@ -959,16 +959,17 @@ def construir_mapa(meta, subs, lim, estaciones, map_est, rios) -> str:
 
 
 # ── Serie de pronóstico interactiva (selector modelo + horizonte) ─────────────
-# Modelos de forecast_multimodelo.csv. En la tabla de métricas el modelo
-# propuesto figura como "RA-TFT"; aquí y en la interfaz se muestra como
-# "RA-TFT" (nombre operacional). Este puente evita mostrar el sufijo interno.
-MODELOS_FCAST = ["RA-TFT", "HydroST", "LightGBM", "Persistencia"]
+# Modelos de forecast_multimodelo.csv. El modelo vigente es el TFT canónico
+# con núcleo GRU; el RA-TFT se conserva como generación anterior. Los nombres
+# coinciden con los de metricas_modelos.csv, así que el puente es identidad.
+MODELOS_FCAST = ["canónico+GRU", "RA-TFT", "HydroST", "LightGBM", "Persistencia"]
 LEADS_FCAST = [1, 3, 7, 14]
-MODELO_A_METRICA = {"RA-TFT": "RA-TFT"}     # nombre en metricas_modelos.csv
+MODELO_A_METRICA = {}                       # nombres ya coinciden con metricas_modelos.csv
 # Colores por modelo en la serie: el propuesto toma el acento (agua); la
 # persistencia, un gris frío de referencia; los demás, tonos neutros.
 COL_FCAST = {
-    "RA-TFT": COL_ACCENT,
+    "canónico+GRU": COL_ACCENT,
+    "RA-TFT": "#7FA8B8",
     "HydroST": COL_DEEP,
     "LightGBM": "#8B6F47",       # tierra apagada — se distingue del azul
     "Persistencia": "#8FA0AC",   # gris frío (baseline)
@@ -1045,8 +1046,8 @@ def serie_pronostico_datos(fcast: pd.DataFrame, metr: pd.DataFrame):
     if fechas_iso is None:
         fechas_iso = []
 
-    # Tramos sin aforo (a partir de la serie diaria de referencia, lead 1 RA-TFT).
-    ref = f[(f["model"] == "RA-TFT") & (f["lead"] == 1)].set_index("date").reindex(
+    # Tramos sin aforo (serie diaria de referencia, lead 1 del modelo vigente).
+    ref = f[(f["model"] == "canónico+GRU") & (f["lead"] == 1)].set_index("date").reindex(
         pd.to_datetime(fechas_iso)).reset_index()
     mask = ref["obs"].isna().to_numpy()
     gaps, i, n = [], 0, len(mask)
@@ -1091,7 +1092,8 @@ def serie_pronostico_datos(fcast: pd.DataFrame, metr: pd.DataFrame):
 def bloque_serie_interactiva(cfg_json: str) -> str:
     """Controles (dos <select>) + contenedor del gráfico + script de dibujo."""
     opciones_modelo = "".join(
-        f'<option value="{m}">{m}</option>' for m in MODELOS_FCAST)
+        f'<option value="{m}">{ETIQUETA_MODELO.get(m, m)}</option>'
+        for m in MODELOS_FCAST)
     opciones_lead = "".join(
         f'<option value="{ld}">{ld} día{"s" if ld != 1 else ""}</option>'
         for ld in LEADS_FCAST)
@@ -1320,7 +1322,7 @@ def construir_excedencia(fcast: pd.DataFrame):
     modelo ya emite (σ por cola; continua en la mediana). Emisión de EJEMPLO
     retrospectivo: 7 días antes del pico del periodo de prueba (2024-02-02)."""
     from math import log, erf, sqrt
-    r = fcast[fcast["model"] == "RA-TFT"].copy()
+    r = fcast[fcast["model"] == "canónico+GRU"].copy()
     con_obs = r.dropna(subset=["obs"])
     pico = con_obs.loc[con_obs["obs"].idxmax(), "date"]
     emision = pico - pd.Timedelta(days=7)
@@ -1625,9 +1627,9 @@ def construir_cdf_errores(fcast: pd.DataFrame) -> str:
                 continue
             err = np.sort(np.abs(d["obs"] - d["p50"]).values)
             y = np.arange(1, len(err) + 1) / len(err) * 100
-            es_prop = (mod == "RA-TFT")
+            es_prop = (mod == "canónico+GRU")
             fig.add_trace(go.Scatter(
-                x=err, y=y, mode="lines", name=mod, legendgroup=mod,
+                x=err, y=y, mode="lines", name=ETIQUETA_MODELO.get(mod, mod), legendgroup=mod,
                 showlegend=(ci == 1),
                 line=dict(color=COL_MODELO.get(mod, COL_MUTED),
                           width=2.8 if es_prop else 1.5),
@@ -1862,13 +1864,13 @@ def construir_evento(fcast: pd.DataFrame) -> str:
             if sub.empty:
                 continue
             sub = sub.sort_values("date")
-            es_prop = (mod == "RA-TFT")
+            es_prop = (mod == "canónico+GRU")
             fig.add_trace(go.Scatter(
                 x=sub["date"], y=sub["p50"], mode="lines",
                 line=dict(color=COL_FCAST.get(mod, COL_ACCENT),
                           width=2.4 if es_prop else 1.6,
                           dash="solid" if es_prop else "dot"),
-                name=mod, legendgroup=mod, visible=visible,
+                name=ETIQUETA_MODELO.get(mod, mod), legendgroup=mod, visible=visible,
                 hovertemplate=f"{mod} · %{{y:.1f}} m³/s"))
             vis_lead[lead].append(orden_traza)
             orden_traza += 1
@@ -1878,7 +1880,7 @@ def construir_evento(fcast: pd.DataFrame) -> str:
     n_modelos_traza = orden_traza
 
     # Observado (aforo) en la ventana — traza fija, siempre visible.
-    obs = win[(win["model"] == "RA-TFT") & (win["lead"] == 1)].dropna(
+    obs = win[(win["model"] == "canónico+GRU") & (win["lead"] == 1)].dropna(
         subset=["obs"]).sort_values("date")
     fig.add_trace(go.Scatter(
         x=obs["date"], y=obs["obs"], mode="markers",
