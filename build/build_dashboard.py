@@ -1597,7 +1597,7 @@ def construir_radar_modelos(metr: pd.DataFrame) -> str:
                           width=2.6 if es_prop else 1.4),
                 fill="toself" if es_prop else None,
                 fillcolor="rgba(11,110,140,0.14)" if es_prop else None,
-                hovertemplate=mod + " · %{theta}: %{r:.2f}<extra></extra>"),
+                hovertemplate=ETIQUETA_MODELO.get(mod, mod) + " · %{theta}: %{r:.2f}<extra></extra>"),
                 row=1, col=ci)
     polar = dict(radialaxis=dict(range=[0, 1], tickfont=dict(size=9, family=FONT_MONO),
                                  gridcolor=COL_BORDER, angle=90, tickangle=90),
@@ -1633,7 +1633,7 @@ def construir_cdf_errores(fcast: pd.DataFrame) -> str:
                 showlegend=(ci == 1),
                 line=dict(color=COL_MODELO.get(mod, COL_MUTED),
                           width=2.8 if es_prop else 1.5),
-                hovertemplate=mod + " · error ≤ %{x:.1f} m³/s el %{y:.0f} % de los días<extra></extra>"),
+                hovertemplate=ETIQUETA_MODELO.get(mod, mod) + " · error ≤ %{x:.1f} m³/s el %{y:.0f} % de los días<extra></extra>"),
                 row=1, col=ci)
         fig.add_hline(y=80, line=dict(color=COL_BORDER, width=1, dash="dot"),
                       row=1, col=ci)

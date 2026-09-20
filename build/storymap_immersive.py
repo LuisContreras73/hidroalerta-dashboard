@@ -123,7 +123,7 @@ def _capitulos(meta) -> list:
                  f"mide el caudal que llega al valle. Sobre el nivel de <b>vigilancia "
                  f"(P90 = {umbral:.0f} m³/s)</b> arranca el seguimiento; los niveles "
                  f"<b>Moderado · Fuerte · Extremo</b> (RM-049) escalan el aviso de crecida.",
-                 "El modelo <b>RA-TFT</b> sostiene la habilidad de pronóstico con varios días de "
+                 "El modelo <b>TFT canónico+GRU</b> sostiene la habilidad de pronóstico con varios días de "
                  "ventaja: cada día ganado es tiempo para alertar, evacuar o manejar el "
                  "riego. Ese es el destino del viaje: <b>convertir el agua en información y la "
                  "información en protección</b>.",
@@ -183,9 +183,9 @@ def _card_extras(meta):
         "yaku": _sm_yaku_bar(),
         # honestidad (auditoría): a 1 día iguala al mejor baseline; su ventaja real
         # es sostener la habilidad a multi-día — el KPI lo dice así.
-        "alerta": _sm_stats([("71 %", "detección de crecida · 1 día"),
-                             ("7–14 d", "donde el modelo gana"),
-                             ("0.95", "NSE · 1 día (≈ baseline)")]),
+        "alerta": _sm_stats([("59 %", "detección de crecida · 1 día"),
+                             ("3–14 d", "donde el modelo gana"),
+                             ("0.94", "NSE · 1 día (≈ baseline)")]),
     }
 
 
