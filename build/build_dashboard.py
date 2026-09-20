@@ -3056,7 +3056,7 @@ def _story_capitulos(meta) -> list:
                  "eficiencia (NSE) de cada modelo al alargar el horizonte. A un "
                  "día, casi todos aciertan; el reto es <b>mantener la habilidad "
                  "a varios días</b>, que es cuando el aviso resulta útil.",
-                 "El modelo propuesto, <b>RA-TFT</b>, es el que mejor sostiene la "
+                 "El modelo vigente, el <b>TFT canónico+GRU</b>, es el que mejor sostiene la "
                  "habilidad conforme crece el horizonte. Cada día ganado de "
                  "anticipación es tiempo para reaccionar: alertar, evacuar o "
                  "manejar el riego con margen.",
@@ -3190,7 +3190,7 @@ def banda_resultados(metr) -> str:
     """Banda de RESULTADOS clave (lo primero para el tomador de decisiones).
     Enmarca con honestidad: el pronóstico CONTINUO (NSE) se sostiene a varios días,
     mientras que la detección BINARIA de crecida (umbral P90) es fiable a 1–2 días."""
-    r = metr[metr["model"] == "RA-TFT"].set_index("lead")
+    r = metr[metr["model"] == "canónico+GRU"].set_index("lead")
     def g(ld, col):
         try: return float(r.loc[ld, col])
         except Exception: return float("nan")
@@ -3488,7 +3488,8 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         {
             "nombre": "Luis Alonzo Contreras Perez",
             "rol": "Deep Learning · Desarrollo del dashboard",
-            "bio": ("Diseñó la arquitectura propia RA-TFT (transformer de "
+            "bio": ("Diseñó las arquitecturas propias del proyecto —RA-TFT y el "
+                    "TFT canónico+GRU vigente— (transformer de "
                     "pronóstico multi-horizonte) y el sistema de alerta; "
                     "construyó el dashboard interactivo."),
             "correos": ["luis.contreras@utec.edu.pe",
@@ -3782,7 +3783,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
           <p class="prose">Alterne entre 1 y 7 días con los botones: a un día el
           seguimiento es estrecho; a siete, la ventana depende de la lluvia
           pronosticada y las trazas se separan del observado.</p>
-          <p class="nota">Línea gruesa (agua): modelo propuesto RA-TFT; las demás,
+          <p class="nota">Línea gruesa (agua): modelo vigente TFT canónico+GRU; las demás,
           de referencia. Punteadas: vigilancia (P90) y nivel Moderado (RM-049).</p>
         </aside>
       </section>
@@ -3794,7 +3795,7 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
            class="tabpanel" tabindex="0" hidden>
     <div class="tab-body">
       <header class="tab-head reveal">
-        <p class="eyebrow">Panorámica · cuatro modelos, siete métricas</p>
+        <p class="eyebrow">Panorámica · cinco modelos, siete métricas</p>
         <h2 class="h-serif">La huella de cada modelo, de un vistazo</h2>
         <p class="prose prose-wide">Cada eje es una métrica re-orientada a
         <b>habilidad 0–1</b> (borde exterior = mejor): exactitud (NSE, KGE, error),
@@ -3841,19 +3842,24 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         consulta que respalda todo lo anterior.</p>
       </header>
       <div class="reveal">{tabla_html}</div>
-      <p class="nota reveal">Lectura operativa: a 1 día HydroST detecta 8 de cada 10
-      crecidas (POD 0,82) con solo 2 falsas alarmas de cada 10 avisos (FAR 0,18).
-      HydroST se evalúa de forma determinista en todos los horizontes: su pronóstico
-      probabilístico solo existe a 1–2 días.</p>
+      <p class="nota reveal">Lectura operativa: en detección a 1 día el mejor es
+      HydroST — 8 de cada 10 crecidas (POD 0,82) con 2 falsas alarmas de cada 10 avisos
+      (FAR 0,18); el modelo vigente detecta 6 de cada 10 (POD 0,59, FAR 0,33). La
+      ventaja del modelo vigente no está en la alerta binaria a un día, sino en
+      sostener exactitud y banda a partir de tres días. HydroST se evalúa de forma
+      determinista en todos los horizontes: su pronóstico probabilístico solo existe
+      a 1–2 días.</p>
 
       <section class="conc-grid reveal">
         <div class="conc-col">
           <h3 class="conc-h conc-ok">Lo que aporta</h3>
           <ul class="conc-list">
-            <li>La persistencia fija el techo de exactitud a 1 día; el modelo
-            propuesto lo iguala en NSE y mejora la calidad probabilística (CRPS).</li>
-            <li>A multi-día, los forzantes meteorológicos aportan valor: el modelo
-            propuesto sostiene mejor la habilidad conforme crece el horizonte.</li>
+            <li>A 1 día la persistencia marca el techo de exactitud (NSE 0,96) y el
+            modelo vigente se queda justo por debajo (0,94); a cambio acota mejor la
+            incertidumbre (CRPS 0,55 frente a 0,58).</li>
+            <li>A multi-día los forzantes meteorológicos aportan valor y la ventaja
+            se ensancha: NSE 0,79 a 7 días y 0,76 a 14, frente a 0,61 y 0,46 de la
+            persistencia.</li>
             <li>El pronóstico se mantiene continuo aunque falte aforo, lo que da
             valor operacional para vigilancia permanente.</li>
           </ul>
@@ -3865,8 +3871,9 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
             pronosticada; sin ella, la ventana fiable es limitada.</li>
             <li>La serie 2025 presenta amplios vacíos de aforo, que reducen los
             eventos disponibles para verificar la detección de crecidas.</li>
-            <li>La evaluación cubre un año de prueba independiente; conviene ampliar
-            el periodo para consolidar las métricas de alerta.</li>
+            <li>La evaluación cubre dos años de prueba independiente (2024–2025),
+            pero solo unos 420 días tienen aforo; conviene ampliar el periodo para
+            consolidar las métricas de alerta.</li>
           </ul>
         </div>
       </section>
@@ -5429,7 +5436,7 @@ JS_FORECAST = """
     var baseLayout = {
       hovermode:'x unified',
       margin:{l:58,r:18,t:64,b:36}, height:470,
-      colorway:[CFG.colores['RA-TFT'], CFG.col_deep, CFG.col_cyan],
+      colorway:[CFG.colores['canónico+GRU'], CFG.col_deep, CFG.col_cyan],
       legend:{orientation:'h', yanchor:'bottom', y:1.10, xanchor:'left', x:0,
         font:{size:12, family:FS, color:CFG.col_muted}},
       font:{family:FS, size:13, color:CFG.col_ink},
@@ -5448,11 +5455,11 @@ JS_FORECAST = """
           {step:'all',label:'Todo'} ],
           font:{size:11, family:FS, color:CFG.col_deep},
           bgcolor:'rgba(255,255,255,0.7)', bordercolor:CFG.col_border,
-          activecolor:CFG.colores['RA-TFT'] }},
+          activecolor:CFG.colores['canónico+GRU'] }},
       plot_bgcolor:'rgba(0,0,0,0)', paper_bgcolor:'rgba(0,0,0,0)',
       hoverlabel:{bgcolor:CFG.col_surf, bordercolor:CFG.col_border,
         font:{family:FM, size:12, color:CFG.col_ink}},
-      modebar:{bgcolor:'rgba(0,0,0,0)', color:CFG.col_muted, activecolor:CFG.colores['RA-TFT']},
+      modebar:{bgcolor:'rgba(0,0,0,0)', color:CFG.col_muted, activecolor:CFG.colores['canónico+GRU']},
       transition:{duration: reduce ? 0 : 350, easing:'cubic-in-out'},
       // umbral de vigilancia + niveles RM-049 (auditoría: el pronóstico debe poder
       // leerse contra el protocolo; rojo reservado para Extremo).
@@ -5482,7 +5489,7 @@ JS_FORECAST = """
     function tracesFor(model, lead){
       var key = model + '|' + lead;
       var s = CFG.series[key];
-      var col = CFG.colores[model] || CFG.colores['RA-TFT'];
+      var col = CFG.colores[model] || CFG.colores['canónico+GRU'];
       var traces = [];
       if (s && s.band && s.p10 && s.p90){
         traces.push({ x:fechas, y:s.p90, mode:'lines', line:{width:0},
@@ -6146,11 +6153,11 @@ JS_JUXTAPOSE = """
 JS_MOMENTOS = """
 (function(){
   var MOMS=[
-   {mod:'RA-TFT',lead:'7',r:['2024-01-08','2024-02-24'],
+   {mod:'canónico+GRU',lead:'7',r:['2024-01-08','2024-02-24'],
     t:'<b>26 de enero de 2024:</b> el sistema emite su pronóstico a 7 días. La mediana sube y la banda —8 de cada 10 escenarios— se arrima al umbral de vigilancia.'},
-   {mod:'RA-TFT',lead:'14',r:['2024-01-08','2024-02-24'],
+   {mod:'canónico+GRU',lead:'14',r:['2024-01-08','2024-02-24'],
     t:'<b>La señal crece con el horizonte:</b> a 14 días, 5 de cada 10 escenarios ya superan la vigilancia (la matriz de excedencia, abajo, lo cuantifica).'},
-   {mod:'RA-TFT',lead:'1',r:['2024-01-18','2024-02-24'],
+   {mod:'canónico+GRU',lead:'1',r:['2024-01-18','2024-02-24'],
     t:'<b>2 de febrero:</b> el río cruza el umbral —56,7 m³/s observados—. El aviso habría salido con una semana de margen.'},
    {mod:null,lead:null,r:null,
     t:'<b>Explora:</b> cambie modelo y horizonte, o arrastre el rango inferior. La historia completa vive en los datos.'}
