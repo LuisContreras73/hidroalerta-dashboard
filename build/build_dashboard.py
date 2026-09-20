@@ -1562,78 +1562,128 @@ def construir_dominio_validez() -> str:
       </details>"""
 
 
-def construir_radar_modelos(metr: pd.DataFrame) -> str:
-    """Huella radial por modelo (h=1 y h=7). El radar es un canal débil (ángulo/área,
-    Cleveland & McGill) — se usa como FIRMA de un vistazo, no para lectura fina (esa
-    es el dotplot). Reglas de honestidad: todas las métricas re-orientadas a
-    «habilidad 0–1». MAE/CRPS → razón mejor/valor (1 = el mejor del horizonte;
-    nadie queda en 0 por construcción).
+def construir_perfil_modelos(metr: pd.DataFrame) -> str:
+    """Perfil de habilidad por métrica (h=1 y h=7), como dot plot de Cleveland.
 
-    A 7 días NINGÚN modelo emite alerta binaria: el umbral duro no se cruza, así que
-    POD = CSI = 0 para todos. Dibujar esos tres ejes como ceros encogía la figura y se
-    leía como «los modelos son malos», cuando lo que ocurre es que a ese plazo el
-    producto deja de ser el aviso y pasa a ser la probabilidad de excedencia. Por eso
-    el panel de 7 días muestra solo los ejes que sí discriminan (exactitud y banda) y
-    lo dice de forma explícita."""
-    EJ_EXACT = ["NSE", "KGE", "Error bajo<br>(MAE, mejor = 1)",
-                "Prob.<br>(CRPS, mejor = 1)"]
-    EJ_ALERTA = ["Detección<br>(POD)", "Alerta certera<br>(1−FAR)", "CSI"]
-    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "polar"}]*2],
+    Antes esto era un radar. Se descartó por dos motivos. El primero es de canal:
+    el radar codifica en ángulo y área, que se juzgan peor que la posición sobre
+    un eje común (Cleveland & McGill). El segundo es que a 7 días solo quedan
+    cuatro métricas con sentido y un radar de cuatro ejes degenera en un
+    cuadrilátero cuya forma la dicta la geometría, no el dato.
+
+    Aquí cada fila es una métrica re-orientada a «habilidad 0–1» (derecha = mejor)
+    y cada punto un modelo, con la misma escala en los dos horizontes. Las tres
+    métricas de alerta se muestran igualmente a 7 días, pero marcadas como no
+    aplicables: a ese plazo ningún modelo cruza el umbral duro, de modo que
+    valdrían 0 para todos. Dejar la fila visible y rotulada es más honesto que
+    borrarla (no se oculta nada) y que dibujarla en cero (no aparenta fracaso).
+
+    MAE y CRPS se expresan como razón «mejor del horizonte / valor», así que el
+    mejor marca 1 y nadie cae a 0 por construcción."""
+    FILAS = [("NSE", "NSE"), ("KGE", "KGE"),
+             ("MAE", "Error bajo (MAE)"), ("CRPS", "Banda (CRPS)"),
+             ("POD", "Detección (POD)"), ("FAR", "Alerta certera (1−FAR)"),
+             ("CSI", "CSI")]
+    ALERTA = {"POD", "FAR", "CSI"}
+    etiquetas = [lab for _, lab in FILAS]
+
+    ESTILOS = [("Persistencia", "#5B6B78", "circle-open"),
+               ("LightGBM", "#98A6B1", "diamond"),
+               ("HydroST", "#98A6B1", "square"),
+               ("RA-TFT", "#7FA8B8", "circle-open"),
+               ("canónico+GRU", COL_ACCENT, "circle")]
+
+    fig = make_subplots(rows=1, cols=2, shared_yaxes=True,
                         subplot_titles=("a 1 día", "a 7 días"),
-                        horizontal_spacing=0.16)
-    # Los títulos de panel caen justo sobre la etiqueta del eje superior: se suben.
-    for _a in fig.layout.annotations:
-        _a.update(y=min(1.0, _a.y + 0.10),
-                  font=dict(size=13.5, family=FONT_SANS, color=COL_INK))
+                        horizontal_spacing=0.055)
+
     for ci, ld in enumerate((1, 7), start=1):
         sub = metr[metr["lead"] == ld].set_index("model")
-        mae_min = sub["MAE"].min()
-        crps_min = sub["CRPS"].min()
-        ejes = EJ_EXACT + EJ_ALERTA if ci == 1 else EJ_EXACT
-        for mod in ORDEN_MODELO:
+        mae_min, crps_min = sub["MAE"].min(), sub["CRPS"].min()
+
+        def hab(r, clave):
+            if clave == "NSE":  return max(0, min(1, r["NSE"]))
+            if clave == "KGE":  return max(0, min(1, r["KGE"]))
+            if clave == "MAE":  return mae_min / r["MAE"]
+            if clave == "CRPS": return None if pd.isna(r["CRPS"]) else crps_min / r["CRPS"]
+            if clave == "POD":  return r["POD"]
+            if clave == "FAR":  return 0 if r["POD"] == 0 else 1 - r["FAR"]
+            return r["CSI"]
+
+        # Las filas de alerta se muestran SIEMPRE (no se oculta ningún dato), pero
+        # se marcan cuando ningún modelo tiene habilidad real a ese plazo. La prueba
+        # no es «¿alguien alertó?» —la persistencia acierta 1 de 17 por azar— sino si
+        # la mejor habilidad de la familia llega a algo.
+        _va = [hab(sub.loc[m], k) for m, _, _ in ESTILOS if m in sub.index
+               for k in ALERTA]
+        _va = [v for v in _va if v is not None]
+        sin_habilidad_alerta = (max(_va) < 0.12) if _va else True
+        activas = list(FILAS)
+
+        # Conector por fila: sitúa el rango entre modelos sin competir con los puntos.
+        for k, lab in activas:
+            vs = [hab(sub.loc[m], k) for m, _, _ in ESTILOS if m in sub.index]
+            vs = [v for v in vs if v is not None]
+            if not vs:
+                continue
+            fig.add_trace(go.Scatter(
+                x=[min(vs), max(vs)], y=[lab, lab], mode="lines",
+                line=dict(color=COL_BORDER, width=2.5),
+                hoverinfo="skip", showlegend=False), row=1, col=ci)
+
+        for mod, color, sym in ESTILOS:
             if mod not in sub.index:
                 continue
             r = sub.loc[mod]
-            sin_alerta = (r["POD"] == 0)
-            vals = [max(0, min(1, r["NSE"])), max(0, min(1, r["KGE"])),
-                    mae_min / r["MAE"],
-                    0 if pd.isna(r["CRPS"]) else crps_min / r["CRPS"]]
-            if ci == 1:
-                vals += [r["POD"], 0 if sin_alerta else 1 - r["FAR"], r["CSI"]]
+            xs, ys = [], []
+            for k, lab in activas:
+                v = hab(r, k)
+                if v is None:
+                    continue
+                xs.append(v); ys.append(lab)
             es_prop = (mod == "canónico+GRU")
-            fig.add_trace(go.Scatterpolar(
-                r=vals + vals[:1], theta=ejes + ejes[:1],
-                name=ETIQUETA_MODELO.get(mod, mod), legendgroup=mod, showlegend=(ci == 1),
-                line=dict(color=COL_MODELO.get(mod, COL_MUTED),
-                          width=2.6 if es_prop else 1.4),
-                fill="toself" if es_prop else None,
-                fillcolor="rgba(11,110,140,0.14)" if es_prop else None,
-                hovertemplate=ETIQUETA_MODELO.get(mod, mod) + " · %{theta}: %{r:.2f}<extra></extra>"),
-                row=1, col=ci)
-    polar = dict(radialaxis=dict(range=[0, 1], tickfont=dict(size=9, family=FONT_MONO),
-                                 gridcolor=COL_BORDER, angle=45, tickangle=0),
-                 angularaxis=dict(tickfont=dict(size=10.5, family=FONT_SANS,
-                                                color=COL_INK), gridcolor=COL_BORDER),
-                 bgcolor="rgba(0,0,0,0)")
-    # El panel de 7 días solo tiene cuatro ejes: sin rotar, uno cae en la vertical y
-    # su etiqueta choca con el título del panel. Rotado 45° los cuatro van en diagonal.
-    polar_d = dict(polar)
-    polar_d["angularaxis"] = dict(polar["angularaxis"], rotation=45)
+            fig.add_trace(go.Scatter(
+                x=xs, y=ys, mode="markers",
+                name=ETIQUETA_MODELO.get(mod, mod), legendgroup=mod,
+                showlegend=(ci == 1),
+                marker=dict(color=color, symbol=sym, size=13 if es_prop else 10,
+                            line=dict(color="#FFFFFF" if es_prop else color,
+                                      width=1.6 if es_prop else 1)),
+                hovertemplate=ETIQUETA_MODELO.get(mod, mod)
+                              + " · %{y}: %{x:.2f}<extra></extra>"), row=1, col=ci)
+
+        # Filas de alerta sin habilidad: se rotulan para que el cero se lea como
+        # «esto no funciona a este plazo para nadie», no como fallo de un modelo.
+        if sin_habilidad_alerta:
+            fig.add_shape(type="rect", xref="x2", yref="y2",
+                          x0=0, x1=1, y0=-0.5, y1=2.5, layer="below",
+                          fillcolor="rgba(91,107,120,0.05)",
+                          line=dict(width=0), row=1, col=ci)
+            fig.add_annotation(
+                x=0.5, y=1, xref="x2", yref="y2", showarrow=False,
+                text="<b>ningún modelo tiene habilidad de alerta a este plazo</b><br>"
+                     "(todos ≈ 0) · el aviso da paso a la probabilidad de excedencia",
+                font=dict(size=11, family=FONT_SANS, color=COL_MUTED), row=1, col=ci)
+
+    eje_x = dict(range=[0, 1.04], dtick=0.25, gridcolor=COL_BORDER,
+                 tickfont=dict(size=10.5, family=FONT_MONO, color=COL_MUTED),
+                 zeroline=False)
+    eje_y = dict(categoryorder="array", categoryarray=list(reversed(etiquetas)),
+                 tickfont=dict(size=11.5, family=FONT_SANS, color=COL_INK),
+                 gridcolor="rgba(0,0,0,0)", zeroline=False)
+    fig.update_xaxes(**eje_x, row=1, col=1)
+    fig.update_xaxes(**eje_x, row=1, col=2)
+    fig.update_yaxes(**eje_y, row=1, col=1)
+    fig.update_yaxes(**eje_y, row=1, col=2)
     fig.update_layout(**layout_base(
-        margin=dict(l=70, r=70, t=86, b=124), height=520,
-        polar=polar, polar2=polar_d,
-        legend=dict(orientation="h", yanchor="bottom", y=-0.34, xanchor="center",
+        margin=dict(l=150, r=40, t=64, b=86), height=440,
+        hovermode="closest",
+        xaxis_title="habilidad 0–1 (derecha = mejor)",
+        xaxis2_title="habilidad 0–1 (derecha = mejor)",
+        legend=dict(orientation="h", yanchor="bottom", y=-0.30, xanchor="center",
                     x=0.5, font=dict(size=12, family=FONT_SANS, color=COL_MUTED))))
-    # Aclara por qué el panel derecho tiene menos ejes (evita leer «peor modelo»).
-    fig.add_annotation(
-        x=0.5, y=-0.20, xref="paper", yref="paper", showarrow=False, align="center",
-        text="<b>Por qué el panel de 7 días tiene menos ejes:</b> a ese plazo ningún modelo "
-             "emite alerta binaria, así que POD, 1−FAR y CSI valdrían 0 para todos y no "
-             "distinguirían nada.<br>El aviso da paso a la <b>probabilidad de excedencia</b>; "
-             "lo que sí discrimina ahí es la exactitud y lo ajustada que sea la banda.",
-        font=dict(size=10.5, family=FONT_SANS, color=COL_MUTED))
     return fig.to_html(include_plotlyjs=False, full_html=False,
-                       div_id="grafico-radar",
+                       div_id="grafico-perfil",
                        config={"displayModeBar": False, "responsive": True})
 
 
@@ -3819,23 +3869,26 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
     <div class="tab-body">
       <header class="tab-head reveal">
         <p class="eyebrow">Panorámica · cinco modelos, siete métricas</p>
-        <h2 class="h-serif">La huella de cada modelo, de un vistazo</h2>
-        <p class="prose prose-wide">Cada eje es una métrica re-orientada a
-        <b>habilidad 0–1</b> (borde exterior = mejor). A <b>1 día</b> se comparan las
-        tres familias —exactitud (NSE, KGE, error), banda (CRPS) y alerta (POD, 1−FAR,
-        CSI)— y las huellas casi se superponen: todos compiten. A <b>7 días</b> la
-        alerta binaria deja de tener sentido, porque a ese plazo ningún modelo cruza
-        el umbral duro; el producto pasa a ser la <b>probabilidad de excedencia</b>, y
-        el panel compara solo exactitud y banda — donde el modelo vigente (relleno) es
-        el que las sostiene. Las secciones siguientes hacen zoom en cada pregunta.</p>
+        <h2 class="h-serif">El perfil de cada modelo, métrica a métrica</h2>
+        <p class="prose prose-wide">Una fila por métrica, un punto por modelo, todas
+        re-orientadas a <b>habilidad 0–1</b> (derecha = mejor) y en la misma escala.
+        A <b>1 día</b> las tres familias —exactitud (NSE, KGE, error), banda (CRPS) y
+        alerta (POD, 1−FAR, CSI)— salen apretadas: todos compiten. A <b>7 días</b> la
+        exactitud y la banda separan a los modelos, y el vigente (relleno) encabeza las
+        cuatro; en cambio la familia de alerta se derrumba <b>para todos</b>, no para
+        uno: a ese plazo el umbral duro no se cruza y el producto pasa a ser la
+        <b>probabilidad de excedencia</b>. Las secciones siguientes hacen zoom en cada
+        pregunta.</p>
       </header>
       <div class="reveal">{radar_div}</div>
-      <p class="nota reveal">Vista panorámica, no de lectura fina (esa es el dotplot
-      y la tabla). MAE y CRPS se muestran como razón «mejor del horizonte / valor»
-      (1 = el mejor), de modo que nadie queda en 0 por construcción. El panel de 7 días
-      omite los ejes de alerta en lugar de dibujarlos en 0: a ese plazo valdrían 0 para
-      todos los modelos y no distinguen nada. Sin cuantiles emitidos, el eje CRPS vale 0
-      (le ocurre a HydroST a partir de 3 días).</p>
+      <p class="nota reveal">Se eligió posición sobre un eje común en lugar de un
+      gráfico radial: el ángulo y el área se juzgan peor, y con solo cuatro métricas
+      útiles a 7 días la figura radial degeneraba en un cuadrilátero cuya forma la
+      dictaba la geometría y no el dato. MAE y CRPS se expresan como razón «mejor del
+      horizonte / valor» (1 = el mejor), así que nadie cae a 0 por construcción. Las
+      filas de alerta se muestran siempre —no se oculta nada— y se sombrean cuando
+      ningún modelo alcanza habilidad a ese plazo. Sin cuantiles emitidos, la banda vale
+      0 (le ocurre a HydroST a partir de 3 días).</p>
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">El argumento · habilidad según horizonte</p>
@@ -6922,7 +6975,7 @@ def main():
     espagueti_div = construir_espagueti_lluvia()
     exc_div, exc_fecha = construir_excedencia(fcast)
     panel_hoy_html = panel_hoy()
-    radar_div = construir_radar_modelos(metr)
+    radar_div = construir_perfil_modelos(metr)
     cdf_div = construir_cdf_errores(fcast)
     dominio_html = construir_dominio_validez()
     minimapa_html = construir_minimapa()
