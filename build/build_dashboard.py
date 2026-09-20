@@ -1563,107 +1563,71 @@ def construir_dominio_validez() -> str:
 
 
 def construir_radar_modelos(metr: pd.DataFrame) -> str:
-    """Huella radial por modelo (h=1 y h=7): la firma de cada uno de un vistazo.
+    """Huella radial de cada modelo a 1 día: la firma de un vistazo.
 
-    Los siete ejes se mantienen en AMBOS horizontes: con cuatro, la figura degeneraba
-    en un cuadrilátero cuya forma la dictaba la geometría y no el dato. Con siete es
-    un heptágono y las dos firmas se comparan entre sí.
+    Un solo panel, a propósito. A 1 día las tres familias de métricas —exactitud,
+    banda y alerta— tienen sentido a la vez, así que los siete ejes están poblados y
+    la figura se lee entera. A plazos largos la alerta binaria deja de ser el producto
+    y el radar se quedaba con zonas muertas; esa historia la cuenta mejor el dotplot
+    de la sección siguiente, que es además el canal adecuado para comparar magnitudes.
 
-    El riesgo de leer «los modelos son malos» a 7 días se ataja señalando la causa en
-    su sitio: el sector de las métricas de alerta se sombrea y se rotula cuando ningún
-    modelo alcanza habilidad a ese plazo, porque el umbral duro no se cruza y el aviso
-    da paso a la probabilidad. El hundimiento queda explicado, no escondido.
-
-    El eje angular es numérico (no categórico) para poder dibujar esa cuña: con
-    categorías, un barpolar reordena el eje y descuadra el panel. Métricas
-    re-orientadas a «habilidad 0–1»; MAE y CRPS como razón «mejor / valor», de modo
-    que el mejor marca 1 y nadie cae a 0 por construcción. Lectura fina: dotplot y tabla."""
+    Métricas re-orientadas a «habilidad 0–1»; MAE y CRPS como razón «mejor / valor»,
+    de modo que el mejor marca 1 y nadie cae a 0 por construcción."""
     EJ = [("NSE", "NSE"), ("KGE", "KGE"),
           ("MAE", "Error bajo<br>(MAE, mejor = 1)"),
           ("CRPS", "Banda<br>(CRPS, mejor = 1)"),
           ("POD", "Detección<br>(POD)"),
           ("FAR", "Alerta certera<br>(1−FAR)"), ("CSI", "CSI")]
-    ALERTA = {"POD", "FAR", "CSI"}
     N = len(EJ)
     paso = 360.0 / N
+    # Medio paso de desfase deja la vertical libre; en negativo Plotly no rotula.
     ang = [(90.0 + paso / 2 - i * paso) % 360 for i in range(N)]
     etq = [lab for _, lab in EJ]
 
-    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "polar"}]*2],
-                        subplot_titles=("a 1 día", "a 7 días"),
-                        horizontal_spacing=0.17)
-    for _a in fig.layout.annotations:
-        _a.update(y=min(1.0, _a.y + 0.07),
-                  font=dict(size=13.5, family=FONT_SANS, color=COL_INK))
+    sub = metr[metr["lead"] == 1].set_index("model")
+    mae_min, crps_min = sub["MAE"].min(), sub["CRPS"].min()
 
-    for ci, ld in enumerate((1, 7), start=1):
-        sub = metr[metr["lead"] == ld].set_index("model")
-        mae_min, crps_min = sub["MAE"].min(), sub["CRPS"].min()
+    def hab(r, k):
+        if k == "NSE":  return max(0, min(1, r["NSE"]))
+        if k == "KGE":  return max(0, min(1, r["KGE"]))
+        if k == "MAE":  return mae_min / r["MAE"]
+        if k == "CRPS": return 0 if pd.isna(r["CRPS"]) else crps_min / r["CRPS"]
+        if k == "POD":  return r["POD"]
+        if k == "FAR":  return 0 if r["POD"] == 0 else 1 - r["FAR"]
+        return r["CSI"]
 
-        def hab(r, k):
-            if k == "NSE":  return max(0, min(1, r["NSE"]))
-            if k == "KGE":  return max(0, min(1, r["KGE"]))
-            if k == "MAE":  return mae_min / r["MAE"]
-            if k == "CRPS": return 0 if pd.isna(r["CRPS"]) else crps_min / r["CRPS"]
-            if k == "POD":  return r["POD"]
-            if k == "FAR":  return 0 if r["POD"] == 0 else 1 - r["FAR"]
-            return r["CSI"]
+    fig = go.Figure()
+    for mod in ORDEN_MODELO:
+        if mod not in sub.index:
+            continue
+        r = sub.loc[mod]
+        vals = [hab(r, k) for k, _ in EJ]
+        es_prop = (mod == "canónico+GRU")
+        col = COL_MODELO.get(mod, COL_MUTED)
+        fig.add_trace(go.Scatterpolar(
+            r=vals + vals[:1], theta=ang + ang[:1],
+            name=ETIQUETA_MODELO.get(mod, mod), mode="lines+markers",
+            marker=dict(size=7 if es_prop else 4.5, color=col),
+            line=dict(color=col, width=3 if es_prop else 1.3),
+            opacity=1 if es_prop else 0.7,
+            fill="toself" if es_prop else None,
+            fillcolor="rgba(11,110,140,0.16)" if es_prop else None,
+            customdata=[etq[i % N] for i in range(N + 1)],
+            hovertemplate=ETIQUETA_MODELO.get(mod, mod)
+                          + " · %{customdata}: %{r:.2f}<extra></extra>"))
 
-        # El sombreado marca los horizontes en los que el producto deja de ser el
-        # aviso binario y pasa a ser la probabilidad. Se decide por la habilidad de la
-        # familia, no por un disparo suelto (la persistencia acierta 1 de 17 por azar).
-        _va = [hab(sub.loc[m], k) for m in sub.index for k in ALERTA]
-        if (max(_va) if _va else 0) < 0.12:
-            idx = [i for i, (k, _) in enumerate(EJ) if k in ALERTA]
-            a_ini, a_fin = ang[max(idx)] - paso / 2, ang[min(idx)] + paso / 2
-            arco = list(np.linspace(a_ini, a_fin, 60))
-            fig.add_trace(go.Scatterpolar(
-                r=[0] + [1] * len(arco) + [0], theta=[a_ini] + arco + [a_fin],
-                mode="lines", line=dict(width=0), fill="toself",
-                fillcolor="rgba(91,107,120,0.10)",
-                hoverinfo="skip", showlegend=False), row=1, col=ci)
-
-        for mod in ORDEN_MODELO:
-            if mod not in sub.index:
-                continue
-            r = sub.loc[mod]
-            vals = [hab(r, k) for k, _ in EJ]
-            es_prop = (mod == "canónico+GRU")
-            col = COL_MODELO.get(mod, COL_MUTED)
-            fig.add_trace(go.Scatterpolar(
-                r=vals + vals[:1], theta=ang + ang[:1],
-                name=ETIQUETA_MODELO.get(mod, mod), legendgroup=mod,
-                showlegend=(ci == 1), mode="lines+markers",
-                marker=dict(size=7 if es_prop else 4.5, color=col),
-                line=dict(color=col, width=3 if es_prop else 1.3),
-                opacity=1 if es_prop else 0.7,
-                fill="toself" if es_prop else None,
-                fillcolor="rgba(11,110,140,0.16)" if es_prop else None,
-                customdata=[etq[i % N] for i in range(N + 1)],
-                hovertemplate=ETIQUETA_MODELO.get(mod, mod)
-                              + " · %{customdata}: %{r:.2f}<extra></extra>"),
-                row=1, col=ci)
-
-    polar = dict(
-        radialaxis=dict(range=[0, 1], tickvals=[0.25, 0.5, 0.75, 1],
-                        tickfont=dict(size=9, family=FONT_MONO, color=COL_MUTED),
-                        gridcolor=COL_BORDER, angle=90, tickangle=0),
-        angularaxis=dict(tickmode="array", tickvals=ang, ticktext=etq,
-                         tickfont=dict(size=10.5, family=FONT_SANS, color=COL_INK),
-                         gridcolor=COL_BORDER, rotation=0, direction="counterclockwise"),
-        bgcolor="rgba(0,0,0,0)")
     fig.update_layout(**layout_base(
-        margin=dict(l=84, r=84, t=84, b=148), height=540,
-        polar=polar, polar2=polar,
-        legend=dict(orientation="h", yanchor="bottom", y=-0.36, xanchor="center",
+        margin=dict(l=90, r=90, t=40, b=78), height=470,
+        polar=dict(
+            radialaxis=dict(range=[0, 1], tickvals=[0.25, 0.5, 0.75, 1],
+                            tickfont=dict(size=9, family=FONT_MONO, color=COL_MUTED),
+                            gridcolor=COL_BORDER, angle=90, tickangle=0),
+            angularaxis=dict(tickmode="array", tickvals=ang, ticktext=etq,
+                             tickfont=dict(size=11, family=FONT_SANS, color=COL_INK),
+                             gridcolor=COL_BORDER, direction="counterclockwise"),
+            bgcolor="rgba(0,0,0,0)"),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.16, xanchor="center",
                     x=0.5, font=dict(size=12, family=FONT_SANS, color=COL_MUTED))))
-    fig.add_annotation(
-        x=0.5, y=-0.225, xref="paper", yref="paper", showarrow=False, align="center",
-        text="Zona sombreada (panel de 7 días): a ese plazo el producto es la "
-             "<b>probabilidad de excedencia</b>, no el aviso de sí/no.<br>La alerta binaria "
-             "es el producto de 1 a 3 días; más allá, la decisión se toma con la banda — "
-             "como en los servicios operativos de crecidas.",
-        font=dict(size=10.5, family=FONT_SANS, color=COL_MUTED))
     return fig.to_html(include_plotlyjs=False, full_html=False,
                        div_id="grafico-radar",
                        config={"displayModeBar": False, "responsive": True})
@@ -3850,27 +3814,22 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
            class="tabpanel" tabindex="0" hidden>
     <div class="tab-body">
       <header class="tab-head reveal">
-        <p class="eyebrow">Panorámica · cinco modelos, siete métricas</p>
+        <p class="eyebrow">Panorámica · cinco modelos, siete métricas, a 1 día</p>
         <h2 class="h-serif">La huella de cada modelo, de un vistazo</h2>
         <p class="prose prose-wide">Siete ejes, todos re-orientados a <b>habilidad 0–1</b>
         (borde exterior = mejor): exactitud (NSE, KGE, error), banda (CRPS) y alerta
-        (POD, 1−FAR, CSI). Cada modelo deja su huella y la del vigente va rellena.
-        A <b>1 día</b> las huellas casi se superponen: todos compiten. A <b>7 días</b> la
-        exactitud y la banda separan a los modelos y el vigente encabeza las cuatro. El
-        sector de alerta aparece sombreado porque a ese plazo <b>cambia el producto</b>: la
-        decisión se toma con la <b>probabilidad de excedencia</b> y con lo ajustada que sea
-        la banda, no con un aviso de sí/no. Las secciones siguientes hacen zoom en cada
-        pregunta.</p>
+        (POD, 1−FAR, CSI). Cada modelo deja su huella y la del vigente va rellena. Se
+        muestra a <b>1 día</b>, el horizonte de la alerta operativa y el único en que las
+        tres familias tienen sentido a la vez: ahí las huellas casi se superponen, todos
+        compiten. Dónde se abre la diferencia —al alargar el plazo— es lo que miden las
+        secciones siguientes.</p>
       </header>
       <div class="reveal">{radar_div}</div>
       <p class="nota reveal">Vista panorámica para comparar firmas de un vistazo; la
       lectura fina es el dotplot y la tabla. MAE y CRPS se expresan como razón «mejor del
-      horizonte / valor» (1 = el mejor), así que nadie cae a 0 por construcción. Los siete
-      ejes se conservan en los dos horizontes —quitarlos dejaba una figura cuya forma la
-      dictaba la geometría— y el sector de alerta se sombrea en los horizontes donde el
-      producto es la probabilidad y no el aviso binario. Los valores siguen dibujados: la
-      tabla de más abajo da POD, FAR y CSI de cada modelo y horizonte. Sin cuantiles
-      emitidos, el eje de banda vale 0 (le ocurre a HydroST a partir de 3 días).</p>
+      horizonte / valor» (1 = el mejor), así que nadie cae a 0 por construcción. El detalle
+      por horizonte —incluidas POD, FAR y CSI de cada modelo a 1, 3, 7 y 14 días— está en
+      la tabla de más abajo.</p>
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">El argumento · habilidad según horizonte</p>
