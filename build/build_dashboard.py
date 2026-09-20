@@ -1567,19 +1567,29 @@ def construir_radar_modelos(metr: pd.DataFrame) -> str:
     Cleveland & McGill) — se usa como FIRMA de un vistazo, no para lectura fina (esa
     es el dotplot). Reglas de honestidad: todas las métricas re-orientadas a
     «habilidad 0–1». MAE/CRPS → razón mejor/valor (1 = el mejor del horizonte;
-    nadie queda en 0 por construcción). Si un modelo no emite alertas (POD=0),
-    sus ejes de alerta valen 0 (un FAR=0 por no alertar no es mérito); sin CRPS
-    (sin cuantiles) → 0 en ese eje. Ejes agrupados: exactitud | prob. | alerta."""
-    ejes = ["NSE", "KGE", "Error bajo<br>(MAE, mejor = 1)",
-            "Prob.<br>(CRPS, mejor = 1)", "Detección<br>(POD)",
-            "Alerta certera<br>(1−FAR)", "CSI"]
+    nadie queda en 0 por construcción).
+
+    A 7 días NINGÚN modelo emite alerta binaria: el umbral duro no se cruza, así que
+    POD = CSI = 0 para todos. Dibujar esos tres ejes como ceros encogía la figura y se
+    leía como «los modelos son malos», cuando lo que ocurre es que a ese plazo el
+    producto deja de ser el aviso y pasa a ser la probabilidad de excedencia. Por eso
+    el panel de 7 días muestra solo los ejes que sí discriminan (exactitud y banda) y
+    lo dice de forma explícita."""
+    EJ_EXACT = ["NSE", "KGE", "Error bajo<br>(MAE, mejor = 1)",
+                "Prob.<br>(CRPS, mejor = 1)"]
+    EJ_ALERTA = ["Detección<br>(POD)", "Alerta certera<br>(1−FAR)", "CSI"]
     fig = make_subplots(rows=1, cols=2, specs=[[{"type": "polar"}]*2],
                         subplot_titles=("a 1 día", "a 7 días"),
                         horizontal_spacing=0.16)
+    # Los títulos de panel caen justo sobre la etiqueta del eje superior: se suben.
+    for _a in fig.layout.annotations:
+        _a.update(y=min(1.0, _a.y + 0.10),
+                  font=dict(size=13.5, family=FONT_SANS, color=COL_INK))
     for ci, ld in enumerate((1, 7), start=1):
         sub = metr[metr["lead"] == ld].set_index("model")
         mae_min = sub["MAE"].min()
         crps_min = sub["CRPS"].min()
+        ejes = EJ_EXACT + EJ_ALERTA if ci == 1 else EJ_EXACT
         for mod in ORDEN_MODELO:
             if mod not in sub.index:
                 continue
@@ -1587,8 +1597,9 @@ def construir_radar_modelos(metr: pd.DataFrame) -> str:
             sin_alerta = (r["POD"] == 0)
             vals = [max(0, min(1, r["NSE"])), max(0, min(1, r["KGE"])),
                     mae_min / r["MAE"],
-                    0 if pd.isna(r["CRPS"]) else crps_min / r["CRPS"],
-                    r["POD"], 0 if sin_alerta else 1 - r["FAR"], r["CSI"]]
+                    0 if pd.isna(r["CRPS"]) else crps_min / r["CRPS"]]
+            if ci == 1:
+                vals += [r["POD"], 0 if sin_alerta else 1 - r["FAR"], r["CSI"]]
             es_prop = (mod == "canónico+GRU")
             fig.add_trace(go.Scatterpolar(
                 r=vals + vals[:1], theta=ejes + ejes[:1],
@@ -1600,15 +1611,27 @@ def construir_radar_modelos(metr: pd.DataFrame) -> str:
                 hovertemplate=ETIQUETA_MODELO.get(mod, mod) + " · %{theta}: %{r:.2f}<extra></extra>"),
                 row=1, col=ci)
     polar = dict(radialaxis=dict(range=[0, 1], tickfont=dict(size=9, family=FONT_MONO),
-                                 gridcolor=COL_BORDER, angle=90, tickangle=90),
+                                 gridcolor=COL_BORDER, angle=45, tickangle=0),
                  angularaxis=dict(tickfont=dict(size=10.5, family=FONT_SANS,
                                                 color=COL_INK), gridcolor=COL_BORDER),
                  bgcolor="rgba(0,0,0,0)")
+    # El panel de 7 días solo tiene cuatro ejes: sin rotar, uno cae en la vertical y
+    # su etiqueta choca con el título del panel. Rotado 45° los cuatro van en diagonal.
+    polar_d = dict(polar)
+    polar_d["angularaxis"] = dict(polar["angularaxis"], rotation=45)
     fig.update_layout(**layout_base(
-        margin=dict(l=60, r=60, t=64, b=30), height=430,
-        polar=polar, polar2=polar,
-        legend=dict(orientation="h", yanchor="bottom", y=-0.12, xanchor="center",
+        margin=dict(l=70, r=70, t=86, b=124), height=520,
+        polar=polar, polar2=polar_d,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.34, xanchor="center",
                     x=0.5, font=dict(size=12, family=FONT_SANS, color=COL_MUTED))))
+    # Aclara por qué el panel derecho tiene menos ejes (evita leer «peor modelo»).
+    fig.add_annotation(
+        x=0.5, y=-0.20, xref="paper", yref="paper", showarrow=False, align="center",
+        text="<b>Por qué el panel de 7 días tiene menos ejes:</b> a ese plazo ningún modelo "
+             "emite alerta binaria, así que POD, 1−FAR y CSI valdrían 0 para todos y no "
+             "distinguirían nada.<br>El aviso da paso a la <b>probabilidad de excedencia</b>; "
+             "lo que sí discrimina ahí es la exactitud y lo ajustada que sea la banda.",
+        font=dict(size=10.5, family=FONT_SANS, color=COL_MUTED))
     return fig.to_html(include_plotlyjs=False, full_html=False,
                        div_id="grafico-radar",
                        config={"displayModeBar": False, "responsive": True})
@@ -3798,19 +3821,21 @@ def ensamblar(mapa_html, serie_div, anim_div, tabla_html, kpi_html,
         <p class="eyebrow">Panorámica · cinco modelos, siete métricas</p>
         <h2 class="h-serif">La huella de cada modelo, de un vistazo</h2>
         <p class="prose prose-wide">Cada eje es una métrica re-orientada a
-        <b>habilidad 0–1</b> (borde exterior = mejor): exactitud (NSE, KGE, error),
-        probabilidad (CRPS) y alerta (POD, 1−FAR, CSI). A 1 día las huellas casi se
-        superponen — todos compiten. A 7 días <b>todos</b> pierden los ejes de
-        alerta binaria (por eso a ese horizonte se comunica probabilidad, no
-        alerta) y solo el modelo propuesto (relleno) sostiene la exactitud y la
-        calidad probabilística. Las secciones siguientes hacen zoom en cada
-        pregunta.</p>
+        <b>habilidad 0–1</b> (borde exterior = mejor). A <b>1 día</b> se comparan las
+        tres familias —exactitud (NSE, KGE, error), banda (CRPS) y alerta (POD, 1−FAR,
+        CSI)— y las huellas casi se superponen: todos compiten. A <b>7 días</b> la
+        alerta binaria deja de tener sentido, porque a ese plazo ningún modelo cruza
+        el umbral duro; el producto pasa a ser la <b>probabilidad de excedencia</b>, y
+        el panel compara solo exactitud y banda — donde el modelo vigente (relleno) es
+        el que las sostiene. Las secciones siguientes hacen zoom en cada pregunta.</p>
       </header>
       <div class="reveal">{radar_div}</div>
       <p class="nota reveal">Vista panorámica, no de lectura fina (esa es el dotplot
       y la tabla). MAE y CRPS se muestran como razón «mejor del horizonte / valor»
-      (1 = el mejor). Sin alertas emitidas (POD = 0) los ejes de alerta valen 0; sin
-      cuantiles, el eje CRPS vale 0.</p>
+      (1 = el mejor), de modo que nadie queda en 0 por construcción. El panel de 7 días
+      omite los ejes de alerta en lugar de dibujarlos en 0: a ese plazo valdrían 0 para
+      todos los modelos y no distinguen nada. Sin cuantiles emitidos, el eje CRPS vale 0
+      (le ocurre a HydroST a partir de 3 días).</p>
 
       <header class="tab-head tab-head-sep reveal">
         <p class="eyebrow">El argumento · habilidad según horizonte</p>
