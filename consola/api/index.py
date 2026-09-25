@@ -16,6 +16,11 @@ _delegate = None
 _delegate_lock = threading.Lock()
 
 
+def _log_storage_failure(exc):
+    # Log only safe diagnostics; never include DSNs, request bodies, or credentials.
+    print(json.dumps({'event': 'telemetry_storage_failure', 'type': type(exc).__name__,
+                      'sqlstate': getattr(exc, 'sqlstate', None)}), file=sys.stderr, flush=True)
+
 def configured_handler():
     global _delegate
     if _delegate is None:
@@ -28,13 +33,15 @@ def configured_handler():
                 def do_get(self):
                     try:
                         base.do_GET(self)
-                    except Exception:
+                    except Exception as exc:
+                        _log_storage_failure(exc)
                         self.reply(503, {'error': 'Almacenamiento no disponible; reintentar'})
 
                 def do_post(self):
                     try:
                         base.do_POST(self)
-                    except Exception:
+                    except Exception as exc:
+                        _log_storage_failure(exc)
                         self.reply(503, {'error': 'Almacenamiento no disponible; reintentar el mismo mensaje'})
 
                 _delegate = type('ConfiguredHandler', (base,), {'do_GET': do_get, 'do_POST': do_post})
