@@ -11,12 +11,13 @@ class PostgresStore:
         self.dsn = dsn
 
     def connect(self):
-        return psycopg.connect(self.dsn, connect_timeout=5, options='-c statement_timeout=8000')
+        return psycopg.connect(self.dsn, connect_timeout=5)
 
     def insert(self, station, reading, received):
         body = json.dumps(reading, sort_keys=True, separators=(',', ':'))
         identity = hashlib.sha256((station + body).encode()).hexdigest()
         with self.connect() as db:
+            db.execute("SET LOCAL statement_timeout = '8s'")
             # Serializar sólo escrituras de una misma estación, incluida la retención.
             db.execute('SELECT pg_advisory_xact_lock(hashtext(%s))', (station,))
             inserted = db.execute('''INSERT INTO console_readings(id,station,device,ts,received_at,body)
@@ -38,6 +39,7 @@ class PostgresStore:
     def snapshot(self, station):
         with self.connect() as db:
             db.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            db.execute("SET LOCAL statement_timeout = '8s'")
             rows = db.execute('SELECT metric,value,ts,device,received_at FROM console_latest WHERE station=%s', (station,)).fetchall()
             history = db.execute('SELECT body FROM console_readings WHERE station=%s ORDER BY ts DESC LIMIT 120', (station,)).fetchall()
         return {'station': station, 'server_time': datetime.now(timezone.utc).isoformat(),
