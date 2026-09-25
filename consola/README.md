@@ -2,14 +2,15 @@
 
 ## Estado de entrega (25 de septiembre de 2026)
 
-Implementado y probado en localhost. La versión pública actual sigue pendiente de reemplazo:
-la primera publicación devuelve `500 FUNCTION_INVOCATION_FAILED`. PostgreSQL Neon ya está
-provisionado, su esquema fue creado, y Vercel quedó conectado al repositorio
-`LuisContreras73/hidroalerta-dashboard` con `consola` como raíz de despliegue. El siguiente
-commit dentro de `consola/` debe activar la compilación automática corregida. Aún falta
-configurar `CONSOLE_CONFIG_JSON` como secreto y verificar el despliegue público con
-`https://hidroalerta-telemetria.vercel.app/health`.
-No se han publicado claves ni mediciones. La clave de GitHub no forma parte del proyecto.
+Backend desplegado en Vercel Production: `https://hidroalerta-telemetria.vercel.app`.
+Neon está provisionado con el esquema del receptor; Vercel está conectado a
+`LuisContreras73/hidroalerta-dashboard` y limita la raíz de despliegue a `consola/`.
+`CONSOLE_CONFIG_JSON` se guardó como secreto de Production. Las pruebas sintéticas públicas
+pasaron: salud 200, clave inválida 401, inserción 201, repetición idéntica 200, lectura 200
+y CORS 204 desde GitHub Pages. Las muestras se registraron con hora de hace 10 minutos para
+no aparecer como datos actuales. No se han contactado sensores físicos.
+Las claves y el token de GitHub no se publicaron en el repositorio. Las claves de dispositivo
+se guardan localmente en `credentials.local.json`, excluido de Git.
 
 Única página existente modificada: `docs/consola.html`. `docs/consola-live.js` es su cliente.
 Todo el receptor, despliegue y pruebas están en `consola/`. No se regenera `docs/index.html`
@@ -17,8 +18,8 @@ ni se cambian otras páginas, datos, modelos, imágenes o generadores.
 
 ## Contrato para el compañero IoT
 
-Transporte: HTTPS. Endpoint: **POST `<ORIGEN_PUBLICADO>/v1/telemetry`**.
-`<ORIGEN_PUBLICADO>` es un marcador; se reemplaza después de publicar y probar.
+Transporte: HTTPS. Endpoint: **`https://hidroalerta-telemetria.vercel.app/v1/telemetry`**.
+El dominio responde en Vercel Production y puede usarse desde los nodos IoT.
 
 Cabeceras:
 
@@ -62,10 +63,10 @@ cada respuesta (no son WebSockets). Tras 120 segundos sin una nueva medición, m
 campo como antiguo y deja de mostrarlo como actual. Ajustar estos valores al protocolo real
 y a las cuotas del proveedor antes de una operación permanente.
 
-Lectura: `GET <ORIGEN_PUBLICADO>/v1/stations/est_santo_domingo_01/latest`
+Lectura: `GET https://hidroalerta-telemetria.vercel.app/v1/stations/est_santo_domingo_01/latest`
 con `Authorization: Bearer <CLAVE_SOLO_LECTURA>`.
 Devuelve `station`, `server_time`, `latest` por campo y hasta 120 mensajes de `history`.
-Comprobación de proceso: `GET <ORIGEN_PUBLICADO>/health` (no comprueba la base de datos).
+Comprobación de proceso: `GET https://hidroalerta-telemetria.vercel.app/health` (no comprueba la base de datos).
 
 ## Ejecución local
 
@@ -141,5 +142,5 @@ de conexión sin regresar a simulación. Revisión real en navegador local: 1.23
 de una estación sintética aislada; caudal/probabilidad se mantienen sin inventar valores.
 `browser_fixture.py` sirve únicamente para esa prueba en localhost, estación `test`.
 
-Pendiente de infraestructura: integración PostgreSQL real, build y rutas de Vercel,
-prueba pública HTTPS, publicación GitHub y prueba con hardware del compañero.
+Pendiente para el mecatrónico: conectar los nodos físicos, confirmar unidades/calibración
+y verificar la cadencia real de transmisión.
