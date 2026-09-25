@@ -1,4 +1,6 @@
 import json
+import io
+import os
 import tempfile
 import threading
 import unittest
@@ -7,7 +9,9 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 from server import Store, handler_for
+from api.index import handler as vercel_handler
 
 
 class ReceiverTest(unittest.TestCase):
@@ -88,6 +92,35 @@ class ReceiverTest(unittest.TestCase):
         self.assertEqual(self.request('OPTIONS', '/v1/telemetry', origin='https://evil.example')[0], 403)
         self.assertEqual(self.request('OPTIONS', '/v1/telemetry', origin='https://luiscontreras73.github.io')[0], 204)
         self.assertEqual(self.request('GET', '/v1/stations/unknown/latest', 'r'*40)[0], 404)
+
+
+class VercelCorsTest(unittest.TestCase):
+    def test_reply_includes_cors_only_for_configured_origin(self):
+        class ResponseProbe:
+            def __init__(self, origin):
+                self.headers = {'Origin': origin}
+                self.sent_headers = {}
+                self.wfile = io.BytesIO()
+
+            def send_response(self, status):
+                self.status = status
+
+            def send_header(self, name, value):
+                self.sent_headers[name] = value
+
+            def end_headers(self):
+                pass
+
+        configured = {'allowed_origins': ['https://luiscontreras73.github.io']}
+        with patch.dict(os.environ, {'CONSOLE_CONFIG_JSON': json.dumps(configured)}):
+            allowed = ResponseProbe('https://luiscontreras73.github.io')
+            vercel_handler.reply(allowed, 401, {'error': 'Clave inválida'})
+            denied = ResponseProbe('https://example.invalid')
+            vercel_handler.reply(denied, 401, {'error': 'Clave inválida'})
+
+        self.assertEqual(allowed.sent_headers['Access-Control-Allow-Origin'], configured['allowed_origins'][0])
+        self.assertEqual(allowed.sent_headers['Vary'], 'Origin')
+        self.assertNotIn('Access-Control-Allow-Origin', denied.sent_headers)
 
 
 if __name__ == '__main__':

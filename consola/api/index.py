@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server import handler_for, validate_config
-from postgres_store import PostgresStore
 
 _delegate = None
 _delegate_lock = threading.Lock()
@@ -27,6 +26,7 @@ def configured_handler():
         with _delegate_lock:
             if _delegate is None:
                 config = validate_config(json.loads(os.environ['CONSOLE_CONFIG_JSON']))
+                from postgres_store import PostgresStore
                 store = PostgresStore(os.environ['DATABASE_URL'])
                 base = handler_for(config, store)
 
@@ -63,6 +63,14 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
+        origin = self.headers.get('Origin')
+        try:
+            allowed_origins = json.loads(os.environ.get('CONSOLE_CONFIG_JSON', '{}')).get('allowed_origins', [])
+        except (TypeError, ValueError):
+            allowed_origins = []
+        if origin in allowed_origins:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
         self.end_headers()
         self.wfile.write(data)
 
