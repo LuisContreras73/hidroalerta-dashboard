@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [{"source": "/v1/:path*", "destination": "/api?path=/v1/:path*"}, {"source": "/health", "destination": "/api?path=/health"}],
+  "functions": {"api/index.py": {"maxDuration": 30, "excludeFiles": "{test_*,browser_fixture.py,credentials*,*.db*,*.log,__pycache__/**}"}}
+}

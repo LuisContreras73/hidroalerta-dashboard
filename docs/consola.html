@@ -1,8 +1,5 @@
 <!doctype html><html lang="es"><head><meta charset="utf-8"><title>Consola de alerta · Chancay-Huaral</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"></script>
-<!-- Firebase opcional (rellenar CFG). En modo demo no se usa. -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@600&display=swap">
 <style>
@@ -34,6 +31,13 @@
  .mtag b{color:var(--green)}
  .decision{font-size:19px;line-height:1.4}.decision b{color:var(--gold)}
  #hint{display:none;position:fixed;right:14px;bottom:10px;color:#3f5157;font-size:16px;font-family:var(--mono)}
+ .connect{font:inherit;border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);padding:7px 12px;cursor:pointer}
+ .station-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.station-head h3{margin:0}
+ #connection{border:1px solid var(--line);border-radius:16px;padding:24px;width:min(520px,85vw);color:var(--ink);font-family:var(--sans)}
+ #connection::backdrop{background:rgba(12,30,42,.45)}
+ #connection label{display:block;margin:12px 0;font-size:14px}#connection input{display:block;box-sizing:border-box;width:100%;padding:10px;margin-top:5px;border:1px solid #b9c9d0;border-radius:6px}
+ #connection p{font-size:14px;line-height:1.5}#connection-error{color:var(--red)}
+ #connection-actions{display:flex;gap:8px;flex-wrap:wrap}.reading-note{font-size:12px;color:var(--mut)}
 </style></head>
 <body><div id="stage"><div id="app">
  <div class="bar">
@@ -47,17 +51,17 @@
  </div>
  <div class="mid">
    <div class="panel"><h3>Pronóstico de caudal · 14 días (banda P10–P90) vs umbral Q90</h3><div id="fc"></div></div>
-   <div class="panel station"><h3>Estación en vivo <span id="modo" class="chip"><span class="dotlive"></span>MODO DEMO</span></h3>
+   <div class="panel station"><div class="station-head"><h3>Estación <span id="modo" class="chip">SIN CONEXIÓN</span></h3><button id="configure" class="connect">Conectar sensores</button></div>
      <div class="cards">
-       <div class="card"><div id="s_nivel" class="v teal">—</div><div class="k">nivel (m)</div></div>
+       <div class="card"><div id="s_nivel" class="v teal">—</div><div class="k">nivel (m)</div><div id="age_nivel" class="reading-note"></div></div>
        <div class="card"><div id="s_caudal" class="v">—</div><div class="k">caudal (m³/s)</div></div>
        <div class="card"><div id="s_temp" class="v">—</div><div class="k">temperatura (°C)</div></div>
-       <div class="card"><div id="s_turb" class="v gold">—</div><div class="k">humedad suelo (%)</div></div>
+       <div class="card"><div id="s_turb" class="v gold">—</div><div class="k">humedad suelo (%)</div><div id="age_suelo" class="reading-note"></div></div>
      </div>
      <div id="spark" style="width:100%;height:120px"></div>
      <div class="motors">
-       <span class="mtag">Motor A · nowcast <b>✓</b></span><span class="mtag">Motor B · subestacional <b>✓</b></span>
-       <span class="mtag">Compuerta: <b id="gate">telemetría OK</b></span><span class="mtag">batería <span id="s_bat">—</span> V · señal <span id="s_rssi">—</span></span>
+       <span class="mtag">Motor A · <b>histórico</b></span><span class="mtag">Motor B · <b>histórico</b></span>
+       <span class="mtag">Compuerta: <b id="gate">sin conexión</b></span><span class="mtag">batería <span id="s_bat">—</span> V · señal <span id="s_rssi">—</span></span>
      </div>
    </div>
  </div>
@@ -69,6 +73,17 @@
    </div>
  </div>
 </div></div><div id="hint">R = reiniciar demo</div>
+<dialog id="connection" aria-labelledby="connection-title">
+ <form id="connection-form">
+  <h2 id="connection-title">Conectar sensores</h2>
+  <p>Ingresa la dirección del receptor y una clave de <strong>solo lectura</strong>. La clave queda en memoria durante esta sesión. Los sensores usan sus propias claves para enviar mediciones.</p>
+  <label>URL del receptor <input id="api-url" type="url" placeholder="https://tu-receptor.vercel.app" required></label>
+  <label>Estación <input id="station-id" value="est_santo_domingo_01" pattern="[a-zA-Z0-9_-]{1,64}" required></label>
+  <label>Clave de lectura <input id="read-key" type="password" autocomplete="off" required></label>
+  <p id="connection-error" role="alert"></p>
+  <div id="connection-actions"><button class="connect" type="submit">Conectar</button><button class="connect" id="demo-button" type="button">Ver demostración</button><button class="connect" id="close-connection" type="button">Cerrar</button></div>
+ </form>
+</dialog>
 <script>
 const D={"ev": {"date": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-06", "2024-01-07", "2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12", "2024-01-13", "2024-01-14", "2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19", "2024-01-20", "2024-01-21", "2024-01-22", "2024-01-23", "2024-01-24", "2024-01-25", "2024-01-26", "2024-01-27", "2024-01-28", "2024-01-29", "2024-01-30", "2024-01-31", "2024-02-01", "2024-02-02", "2024-02-03", "2024-02-04", "2024-02-05", "2024-02-06", "2024-02-07", "2024-02-08", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-02-13", "2024-02-14", "2024-02-15", "2024-02-16", "2024-02-17", "2024-02-18", "2024-02-19", "2024-02-20", "2024-02-21", "2024-02-22", "2024-02-23", "2024-02-24", "2024-02-25", "2024-02-26", "2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01", "2024-03-02", "2024-03-03", "2024-03-04", "2024-03-05", "2024-03-06", "2024-03-07", "2024-03-08", "2024-03-09", "2024-03-10", "2024-03-11", "2024-03-12", "2024-03-13", "2024-03-14", "2024-03-15", "2024-03-16", "2024-03-17", "2024-03-18", "2024-03-19", "2024-03-20"], "obs": [null, null, null, null, null, null, null, null, 26.84, 31.85, 29.59, 33.9, 34.28, 37.83, 36.27, 31.65, 34.54, 38.96, 37.17, 33.81, 33.03, 34.86, 32.32, 32.86, 32.67, 35.08, 34.18, 32.7, 40.3, 49.22, 42.82, 51.52, 56.68, 47.92, 39.58, 37.78, 33.96, 31.39, 30.74, 29.53, 27.51, 25.0, 23.97, 23.97, 22.27, 23.0, 21.46, 20.71, 22.2, 26.85, 25.9, 30.23, 25.74, 23.19, 21.68, 20.78, 29.61, 31.54, 34.07, 38.16, 42.19, 44.57, 41.91, 38.47, 34.4, 31.51, 28.53, 28.62, 27.82, 26.02, 25.3, 26.61, 23.65, 21.07, 19.57, 18.34, 20.04, 19.79, 23.43, 27.17], "p10": [11.190716, 11.46742, 8.358286, 11.728808, 13.560043, 16.950605, 22.934225, 24.22978, 24.609327, 25.07518, 24.299845, 23.494741, 22.330297, 21.495855, 21.556906, 22.732615, 23.755402, 23.597815, 23.97818, 24.185846, 24.400015, 24.165628, 23.362185, 23.098608, 23.240042, 22.993174, 22.320587, 21.932203, 21.706526, 21.194855, 20.89089, 20.419916, 20.309896, 19.909134, 19.24625, 19.01931, 20.158789, 19.52159, 20.761518, 22.4997, 22.061052, 21.595139, 20.44128, 18.874163, 18.081713, 17.871782, 17.453184, 16.649765, 16.069124, 15.837555, 15.6363945, 16.048487, 15.56556, 15.926112, 15.100183, 15.58226, 16.49199, 16.42925, 16.86655, 16.098703, 16.27456, 15.873879, 18.583134, 19.48522, 19.562914, 22.318481, 25.844824, 24.449545, 24.695267, 23.548037, 22.401209, 20.677202, 19.3823, 18.751038, 19.278631, 18.776125, 18.192045, 18.626884, 18.684866, 17.914122], "p50": [18.754194, 19.07831, 14.515986, 19.859716, 22.904448, 28.415354, 37.297405, 38.987442, 39.323147, 39.937046, 38.819653, 37.702393, 36.000515, 34.703373, 35.309002, 37.26318, 38.263805, 38.475292, 38.938602, 39.136585, 39.520992, 38.76244, 37.842197, 37.73862, 37.864758, 37.5582, 36.69045, 36.106297, 35.85248, 35.275295, 34.519962, 34.016697, 33.955082, 33.4844, 32.88548, 32.88754, 34.15708, 33.7041, 35.562683, 36.802605, 35.607456, 35.134148, 33.19125, 30.917864, 29.786661, 29.54358, 29.030684, 27.825724, 26.891373, 26.964943, 26.807924, 28.23555, 27.157297, 28.306799, 25.972397, 27.01716, 29.512701, 28.780533, 29.03193, 27.654444, 27.982325, 27.478638, 32.896408, 33.251152, 32.74683, 37.240097, 42.369858, 39.443775, 39.64356, 37.83562, 35.918354, 33.13632, 30.941895, 29.75709, 30.32683, 29.15075, 27.837885, 28.081734, 27.846125, 26.232538], "p90": [26.246618, 26.625017, 20.718805, 27.906809, 32.006573, 39.467266, 51.058365, 53.14343, 53.425568, 54.124176, 52.58856, 51.093582, 48.888073, 47.1938, 48.27718, 50.956005, 51.961895, 52.526028, 53.086803, 53.30069, 53.87057, 52.644283, 51.667767, 51.775646, 51.962, 51.66785, 50.69121, 49.997498, 49.798023, 49.23879, 48.096237, 47.673573, 47.738613, 47.281643, 46.829407, 47.11983, 48.61011, 48.378635, 50.87509, 51.69067, 49.765827, 49.35857, 46.60763, 43.635014, 42.17911, 41.925617, 41.33794, 39.746094, 38.452778, 38.85115, 38.764233, 41.308064, 39.602997, 41.632328, 37.68572, 39.314667, 43.55778, 42.114502, 42.14452, 40.115314, 40.596523, 39.98756, 48.234776, 48.04942, 46.882793, 53.099224, 59.85567, 55.388813, 55.497143, 52.99692, 50.28067, 46.394268, 43.244015, 41.449486, 42.018326, 40.12531, 38.01659, 38.00897, 37.441963, 34.910175]}, "men": {"date": ["2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01", "2025-06-01", "2025-07-01", "2025-08-01", "2025-09-01", "2025-10-01", "2025-11-01", "2025-12-01", "2026-01-01"], "obs": [null, null, null, null, null, null, null, null, 13.119, 9.665, 7.859, null], "p50": [25.529, 47.281, 25.521, 10.228, 7.847, 6.843, 6.87, 6.923, 6.685, 5.942, 10.017, 12.803], "p10": [17.888, 29.672, 17.584, 8.524, 6.113, 5.638, 5.924, 5.839, 4.645, 4.611, 3.105, 4.603], "p90": [40.813, 71.447, 48.669, 11.089, 8.453, 7.448, 7.565, 11.089, 11.528, 9.995, 16.775, 23.338], "clim": [26.182, 32.29, 22.803, 9.868, 6.899, 5.968, 6.299, 6.29, 6.063, 7.981, 10.353, 14.34]}, "Q90": 40.89}; const Q90=D.Q90;
 const C={bg:'#F7F9FB',ink:'#0C1E2A',mut:'#5A6B74',teal:'#1f95ab',green:'#2f9e6b',red:'#d1442b',gold:'#b5851a',band:'rgba(47,158,107,0.16)'};
@@ -133,32 +148,14 @@ function setReading(idx){
 let ptr=8, timer=null;
 function firstObs(){for(let i=0;i<D.ev.obs.length;i++) if(D.ev.obs[i]!=null) return i; return 0;}
 function tick(){ drawFC(ptr); drawVer(ptr); drawSpark(ptr); setReading(ptr); ptr++; if(ptr>=D.ev.obs.length) ptr=firstObs(); }
-function startDemo(){ ptr=firstObs(); drawMen(); if(timer)clearInterval(timer); tick(); timer=setInterval(tick,1400); }
-// --- Firebase (si CFG.databaseURL, cambia a EN VIVO) ---
-const CFG={databaseURL:"",device:"est_santo_domingo_01"}; // <-- rellenar databaseURL para modo EN VIVO
-function startLive(){
- try{ firebase.initializeApp({databaseURL:CFG.databaseURL});
-   document.getElementById('modo').innerHTML='<span class="dotlive"></span>EN VIVO';
-   drawMen();
-   firebase.database().ref('telemetria/'+CFG.device+'/latest').on('value',s=>{ const r=s.val(); if(!r)return;
-     document.getElementById('s_nivel').textContent=(r.nivel_cm/100).toFixed(2);
-     document.getElementById('s_temp').textContent=(r.temp_c??'—');
-     document.getElementById('s_turb').textContent=(r.suelo??'—');
-     document.getElementById('s_bat').textContent=(r.bateria_v??'—');
-     document.getElementById('s_rssi').textContent=(r.rssi??'—');
-     document.getElementById('k_fecha').textContent=(r.ts||'').slice(11,16);
-   });
- }catch(e){ startDemo(); }
-}
-function start(){ if(CFG.databaseURL) startLive(); else startDemo(); }
 function fit(){var s=Math.min(innerWidth/1920,innerHeight/1080);var a=document.getElementById('app');if(!a)return;var tx=(innerWidth-1920*s)/2, ty=(innerHeight-1080*s)/2;a.style.transform='translate('+tx+'px,'+ty+'px) scale('+s+')';}
-function whenReady(cb){ if(window.Plotly){cb();return;} let n=0; const iv=setInterval(()=>{ if(window.Plotly||n++>300){clearInterval(iv);cb();} },50); }
+function whenReady(cb){ if(window.Plotly){cb();return;} let n=0; const iv=setInterval(()=>{ if(window.Plotly){clearInterval(iv);cb();}else if(n++>300){clearInterval(iv);document.getElementById('gate').textContent='No se pudo cargar Plotly. Recarga la página.';} },50); }
 function boot(){ fit(); whenReady(start);
  // el iframe del dashboard puede cambiar de tamano despues del load:
  [120,400,900,1800].forEach(function(t){setTimeout(fit,t);});
  try{ new ResizeObserver(fit).observe(document.documentElement); }catch(e){}
 }
 addEventListener('resize',fit);
-document.addEventListener('keydown',e=>{if(e.key==='r'||e.key==='R') start(); if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}});
-if(document.readyState!=='loading') boot(); else document.addEventListener('DOMContentLoaded',boot);
-</script></body></html>
+document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA'].includes(e.target.tagName)||document.getElementById('connection').open)return;if((e.key==='r'||e.key==='R')&&timer)startDemo();if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}});
+document.addEventListener('DOMContentLoaded',boot);
+</script><script src="consola-live.js"></script></body></html>

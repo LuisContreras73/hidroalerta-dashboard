@@ -1,0 +1,8 @@
+credentials*
+*.db*
+*.log
+__pycache__
+test_*
+.env*
+.venv/
+.vercel/
