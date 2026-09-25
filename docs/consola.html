@@ -92,27 +92,27 @@ const PLBASE={paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',font:{c
 // --- forecast chart (event window) ---
 function drawFC(upto){
  const d=D.ev, x=d.date;
- const band={x:x.concat([...x].reverse()),y:d.p90.concat([...d.p10].reverse()),fill:'toself',fillcolor:C.band,line:{width:0},hoverinfo:'skip'};
- const p50={x:x,y:d.p50,mode:'lines',line:{color:C.green,width:2,dash:'dot'}};
+ const band={x:x.concat([...x].reverse()),y:d.p90.concat([...d.p10].reverse()),fill:'toself',fillcolor:C.band,line:{width:0},hoverinfo:'skip',name:'Banda P10–P90'};
+ const p50={x:x,y:d.p50,mode:'lines',name:'Pronóstico P50',line:{color:C.green,width:2,dash:'dot'}};
  const obsX=x.slice(0,upto+1),obsY=d.obs.slice(0,upto+1);
- const obs={x:obsX,y:obsY,mode:'lines+markers',line:{color:C.ink,width:3},marker:{size:5,color:obsY.map((v,i)=> v!=null&&v>d.p90[i]?C.red:C.ink)}};
- const q90={x:[x[0],x[x.length-1]],y:[Q90,Q90],mode:'lines',line:{color:C.red,width:2,dash:'dash'}};
- const today=x[upto]?{x:[x[upto],x[upto]],y:[0,64],mode:'lines',line:{color:'rgba(12,30,42,.30)',width:1.5,dash:'dot'}}:null;
+ const obs={x:obsX,y:obsY,mode:'lines+markers',name:'Caudal medido',line:{color:C.ink,width:3},marker:{size:5,color:obsY.map((v,i)=> v!=null&&v>d.p90[i]?C.red:C.ink)}};
+ const q90={x:[x[0],x[x.length-1]],y:[Q90,Q90],mode:'lines',name:'Umbral Q90',line:{color:C.red,width:2,dash:'dash'}};
+ const today=x[upto]?{x:[x[upto],x[upto]],y:[0,64],mode:'lines',showlegend:false,line:{color:'rgba(12,30,42,.30)',width:1.5,dash:'dot'}}:null;
  const data=[band,p50,q90,obs]; if(today)data.push(today);
- Plotly.react('fc',data,Object.assign({},PLBASE,{yaxis:Object.assign({range:[0,64],title:''},PLBASE.yaxis)}),{displayModeBar:false,responsive:true});
+ Plotly.react('fc',data,Object.assign({},PLBASE,{showlegend:true,legend:{orientation:'h',x:0,y:1.15,xanchor:'left',yanchor:'bottom',font:{size:11}},margin:{l:46,r:12,t:48,b:28},yaxis:Object.assign({range:[0,64],title:''},PLBASE.yaxis)}),{displayModeBar:false,responsive:true});
 }
 function drawVer(upto){
  const d=D.ev,a=Math.max(0,upto-13),x=d.date.slice(a,upto+1);
- const med={x:x,y:d.p50.slice(a,upto+1),mode:'lines',name:'pronóstico',line:{color:C.green,width:2}};
- const ob={x:x,y:d.obs.slice(a,upto+1),mode:'lines+markers',name:'medido',line:{color:C.ink,width:2},marker:{size:4}};
- Plotly.react('ver',[med,ob],Object.assign({},PLBASE,{margin:{l:40,r:10,t:6,b:24}}),{displayModeBar:false,responsive:true});
+ const med={x:x,y:d.p50.slice(a,upto+1),mode:'lines',name:'Pronóstico P50',line:{color:C.green,width:2}};
+ const ob={x:x,y:d.obs.slice(a,upto+1),mode:'lines+markers',name:'Medido',line:{color:C.ink,width:2},marker:{size:4}};
+ Plotly.react('ver',[med,ob],Object.assign({},PLBASE,{showlegend:true,legend:{orientation:'h',x:0,y:1.2,xanchor:'left',yanchor:'bottom',font:{size:10}},margin:{l:40,r:10,t:42,b:24}}),{displayModeBar:false,responsive:true});
 }
 function drawMen(){ if(!D.men){document.getElementById('men').innerHTML='<div style="color:#5A6B74">—</div>';return;}
  const m=D.men,x=m.date;
- const band={x:x.concat([...x].reverse()),y:m.p90.concat([...m.p10].reverse()),fill:'toself',fillcolor:'rgba(70,184,204,.18)',line:{width:0},hoverinfo:'skip'};
- const p50={x:x,y:m.p50,mode:'lines+markers',line:{color:C.teal,width:2},marker:{size:4}};
- const cl={x:x,y:m.clim,mode:'lines',line:{color:C.gold,width:1.5,dash:'dot'}};
- Plotly.react('men',[band,cl,p50],Object.assign({},PLBASE,{margin:{l:40,r:10,t:6,b:24}}),{displayModeBar:false,responsive:true});
+ const band={x:x.concat([...x].reverse()),y:m.p90.concat([...m.p10].reverse()),fill:'toself',fillcolor:'rgba(70,184,204,.18)',line:{width:0},hoverinfo:'skip',name:'Banda P10–P90'};
+ const p50={x:x,y:m.p50,mode:'lines+markers',name:'Pronóstico P50',line:{color:C.teal,width:2},marker:{size:4}};
+ const cl={x:x,y:m.clim,mode:'lines',name:'Climatología',line:{color:C.gold,width:1.5,dash:'dot'}};
+ Plotly.react('men',[band,cl,p50],Object.assign({},PLBASE,{showlegend:true,legend:{orientation:'h',x:0,y:1.2,xanchor:'left',yanchor:'bottom',font:{size:9}},margin:{l:40,r:10,t:42,b:24}}),{displayModeBar:false,responsive:true});
 }
 function drawSpark(upto){ const d=D.ev,a=Math.max(0,upto-20),x=d.date.slice(a,upto+1),y=d.obs.slice(a,upto+1);
  Plotly.react('spark',[{x:x,y:y,mode:'lines',line:{color:C.teal,width:2.5},fill:'tozeroy',fillcolor:'rgba(70,184,204,.12)'}],
