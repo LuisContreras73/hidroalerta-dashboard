@@ -2,16 +2,14 @@
 
 ## Estado de entrega (25 de septiembre de 2026)
 
-Implementado y comprobado en localhost. El dominio reservado es
-`https://hidroalerta-telemetria.vercel.app`, pero la versión publicada responde
-`500 FUNCTION_INVOCATION_FAILED`. La primera publicación ocurrió antes de agregar la
-inicialización diferida de variables y el encaminamiento de rutas; ese ZIP corregido aún
-no está desplegado. También falta PostgreSQL y configurar `CONSOLE_CONFIG_JSON` y
-`DATABASE_URL`.
-La creación de PostgreSQL requiere aceptar en Vercel los términos de Neon. La carga del
-ZIP corregido, el despliegue final y la comprobación pública también siguen pendientes.
-Vercel ya tiene el dominio reservado. No se han añadido claves ni mediciones a la publicación.
-La nueva clave de GitHub tiene permisos de escritura verificados en ambos repositorios.
+Implementado y probado en localhost. La versión pública actual sigue pendiente de reemplazo:
+la primera publicación devuelve `500 FUNCTION_INVOCATION_FAILED`. PostgreSQL Neon ya está
+provisionado, su esquema fue creado, y Vercel quedó conectado al repositorio
+`LuisContreras73/hidroalerta-dashboard` con `consola` como raíz de despliegue. El siguiente
+commit dentro de `consola/` debe activar la compilación automática corregida. Aún falta
+configurar `CONSOLE_CONFIG_JSON` como secreto y verificar el despliegue público con
+`https://hidroalerta-telemetria.vercel.app/health`.
+No se han publicado claves ni mediciones. La clave de GitHub no forma parte del proyecto.
 
 Única página existente modificada: `docs/consola.html`. `docs/consola-live.js` es su cliente.
 Todo el receptor, despliegue y pruebas están en `consola/`. No se regenera `docs/index.html`
